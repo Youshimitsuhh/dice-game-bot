@@ -9,6 +9,27 @@ from cryptopay import CryptoPay
 from config import Config
 from database import Database
 
+from flask import Flask, request, jsonify
+import logging
+import os
+from datetime import datetime
+
+app = Flask(__name__)
+
+# ==================== HEALTH CHECK ENDPOINTS ====================
+@app.route('/')
+def health_check():
+    return jsonify({
+        "status": "healthy",
+        "service": "Dice Game Bot",
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "ok"})
+
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -872,10 +893,9 @@ class DiceGameBot:
 
             print(f"🔍 DEBUG: Результат transfer: {transfer_result}")
 
-            if transfer_result.get('ok'):
+        if transfer_result.get('ok'):
             # ... код успешного вывода ...
-
-            else:
+        else:
                 error_data = transfer_result.get('error', {})
                 error_code = error_data.get('code')
 
@@ -945,7 +965,25 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # Настройка логирования
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    # Проверка обязательных переменных
+    from config import Config
+
+    if not Config.BOT_TOKEN or Config.BOT_TOKEN == "688629:AABjVxCcyvvBDE4rbeeoPJyGwSw3N1ZJN4Z":
+        logging.error("BOT_TOKEN not properly configured! Check environment variables.")
+        exit(1)
+
+    # Получаем порт из переменных окружения (важно для Render)
+    port = int(os.getenv('PORT', 5000))
+    host = os.getenv('WEBAPP_HOST', '0.0.0.0')
+
+    logging.info(f"Starting Dice Game Bot on {host}:{port}")
+    app.run(host=host, port=port, debug=False)  # debug=False для production
 
 
 
