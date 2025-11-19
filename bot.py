@@ -1035,7 +1035,7 @@ if __name__ == '__main__':
 
     # Запускаем polling в отдельном потоке
     from threading import Thread
-    bot_thread = Thread(target=game_bot.run_bot)  # ← ИСПРАВИЛ НА run_bot
+    bot_thread = Thread(target=game_bot.application.run_polling)
     bot_thread.daemon = True
     bot_thread.start()
 
