@@ -7,7 +7,7 @@ load_dotenv()
 
 class Config:
     # Telegram Bot Token (получаем из переменных окружения)
-    BOT_TOKEN = os.getenv('BOT_TOKEN', '688629:AABjVxCcyvvBDE4rbeeoPJyGwSw3N1ZJN4Z')
+    BOT_TOKEN = os.getenv('BOT_TOKEN', '8067592113:AAFdP5CNVzS7b1jy0j1X0v5YxUvvN7Dp2B8')
 
     # Crypto Pay API (получаем из переменных окружения)
     CRYPTO_PAY_TOKEN = os.getenv('CRYPTO_PAY_TOKEN', '488629:AABjVxCcyvvBDE4rbeeoPJyGwSw3N1ZJN4Z')
