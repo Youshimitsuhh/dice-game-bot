@@ -1035,7 +1035,8 @@ if __name__ == '__main__':
     application = Application.builder().token(Config.BOT_TOKEN).build()
 
     # Ваша существующая инициализация хендлеров
-    game_bot = DiceGameBot(application)
+    game_bot = DiceGameBot()
+    game_bot.setup_handlers(application)
 
     port = int(os.getenv('PORT', 5000))
     logging.info(f"Starting bot on port {port}")
