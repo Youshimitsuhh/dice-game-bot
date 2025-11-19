@@ -1036,7 +1036,7 @@ if __name__ == '__main__':
 
     # Ваша существующая инициализация хендлеров
     game_bot = DiceGameBot()
-
+    application = game_bot.application
 
     port = int(os.getenv('PORT', 5000))
     logging.info(f"Starting bot on port {port}")
