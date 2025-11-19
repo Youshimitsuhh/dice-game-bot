@@ -32,13 +32,17 @@ def health():
 
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook():
-    from telegram import Bot
-    bot = Bot(token=Config.BOT_TOKEN)
+    try:
+        from telegram import Bot
+        from config import Config
 
-    webhook_url = f"https://dice-game-bot-7acf.onrender.com/webhook"
-    result = bot.set_webhook(webhook_url)
+        bot = Bot(token=Config.BOT_TOKEN)
+        webhook_url = "https://dice-game-bot-7acf.onrender.com/webhook"
+        result = bot.set_webhook(webhook_url)
 
-    return jsonify({"status": "webhook set", "url": webhook_url, "result": result})
+        return jsonify({"status": "success", "webhook_set": result, "url": webhook_url})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
 logging.basicConfig(
