@@ -35,10 +35,15 @@ def set_webhook():
     try:
         from telegram import Bot
         from config import Config
+        import asyncio
 
-        bot = Bot(token=Config.BOT_TOKEN)
-        webhook_url = "https://dice-game-bot-7acf.onrender.com/webhook"
-        result = bot.set_webhook(webhook_url)
+        async def set_webhook_async():
+            bot = Bot(token=Config.BOT_TOKEN)
+            webhook_url = "https://dice-game-bot-7acf.onrender.com/webhook"
+            result = await bot.set_webhook(webhook_url)
+            return result
+
+        result = asyncio.run(set_webhook_async())
 
         return jsonify({"status": "success", "webhook_set": result, "url": webhook_url})
     except Exception as e:
