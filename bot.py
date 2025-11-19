@@ -41,9 +41,9 @@ def set_webhook():
             bot = Bot(token=Config.BOT_TOKEN)
             webhook_url = "https://dice-game-bot-7acf.onrender.com/webhook"
             result = await bot.set_webhook(webhook_url)
-            return result
+            return result, webhook_url
 
-        result = asyncio.run(set_webhook_async())
+        result, webhook_url = asyncio.run(set_webhook_async())
 
         return jsonify({"status": "success", "webhook_set": result, "url": webhook_url})
     except Exception as e:
