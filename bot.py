@@ -1031,6 +1031,7 @@ if __name__ == '__main__':
         logging.error("BOT_TOKEN not configured!")
         exit(1)
 
+    game_bot = DiceGameBot()
 
     port = int(os.getenv('PORT', 5000))
     logging.info(f"Starting bot on port {port}")
