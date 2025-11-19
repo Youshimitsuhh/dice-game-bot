@@ -1033,6 +1033,12 @@ if __name__ == '__main__':
 
     game_bot = DiceGameBot()
 
+    # Запускаем polling в отдельном потоке
+    from threading import Thread
+    bot_thread = Thread(target=game_bot.application.run_polling)
+    bot_thread.daemon = True
+    bot_thread.start()
+
     port = int(os.getenv('PORT', 5000))
     logging.info(f"Starting bot on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
