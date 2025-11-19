@@ -1031,12 +1031,6 @@ if __name__ == '__main__':
         logging.error("BOT_TOKEN not configured!")
         exit(1)
 
-    # Инициализация бота
-    application = Application.builder().token(Config.BOT_TOKEN).build()
-
-    # Ваша существующая инициализация хендлеров
-    game_bot = DiceGameBot()
-    application = game_bot.application
 
     port = int(os.getenv('PORT', 5000))
     logging.info(f"Starting bot on port {port}")
