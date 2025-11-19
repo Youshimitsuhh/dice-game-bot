@@ -893,9 +893,23 @@ class DiceGameBot:
 
             print(f"🔍 DEBUG: Результат transfer: {transfer_result}")
 
-        if transfer_result.get('ok'):
-            # ... код успешного вывода ...
-        else:
+        except Exception as e:
+            print(f"❌ Ошибка при выводе: {e}")
+            await query.edit_message_text("❌ Ошибка при обработке вывода")
+            return
+
+        try:
+            if transfer_result.get('ok'):
+                # КОД УСПЕШНОГО ВЫВОДА
+                print("✅ Вывод успешно выполнен")
+                # TODO: Добавьте логику успешного вывода (обновление баланса и т.д.)
+                await query.edit_message_text(
+                    "✅ Вывод успешно выполнен!",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📋 Меню", callback_data="main_menu")]
+                    ])
+                )
+            else:
                 error_data = transfer_result.get('error', {})
                 error_code = error_data.get('code')
 
