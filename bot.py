@@ -14,6 +14,12 @@ import logging
 import os
 from datetime import datetime
 
+from telegram import Update
+from telegram.ext import Application, ContextTypes
+import asyncio
+
+application = None
+
 app = Flask(__name__)
 
 # ==================== HEALTH CHECK ENDPOINTS ====================
@@ -28,6 +34,24 @@ def health_check():
 @app.route('/health')
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        json_data = request.get_json()
+        update = Update.de_json(json_data, application.bot)
+
+        # Асинхронная обработка update
+        async def process_update():
+            await application.process_update(update)
+
+        asyncio.create_task(process_update())
+        return '', 200
+
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return '', 200
 
 
 @app.route('/set_webhook', methods=['GET'])
@@ -48,6 +72,8 @@ def set_webhook():
         return jsonify({"status": "success", "webhook_set": result, "url": webhook_url})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
+
+
 
 
 logging.basicConfig(
@@ -999,25 +1025,21 @@ def main():
 
 
 if __name__ == '__main__':
-    # Настройка логирования
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    logging.basicConfig(level=logging.INFO)
 
-    # Проверка обязательных переменных
-    from config import Config
-
-    if not Config.BOT_TOKEN or Config.BOT_TOKEN == "688629:AABjVxCcyvvBDE4rbeeoPJyGwSw3N1ZJN4Z":
-        logging.error("BOT_TOKEN not properly configured! Check environment variables.")
+    if not Config.BOT_TOKEN:
+        logging.error("BOT_TOKEN not configured!")
         exit(1)
 
-    # Получаем порт из переменных окружения (важно для Render)
-    port = int(os.getenv('PORT', 5000))
-    host = os.getenv('WEBAPP_HOST', '0.0.0.0')
+    # Инициализация бота
+    application = Application.builder().token(Config.BOT_TOKEN).build()
 
-    logging.info(f"Starting Dice Game Bot on {host}:{port}")
-    app.run(host=host, port=port, debug=False)  # debug=False для production
+    # Ваша существующая инициализация хендлеров
+    game_bot = DiceGameBot(application)
+
+    port = int(os.getenv('PORT', 5000))
+    logging.info(f"Starting bot on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
 
 
 
