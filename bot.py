@@ -1033,7 +1033,11 @@ if __name__ == '__main__':
 
     game_bot = DiceGameBot()
 
-    # Запускаем polling в отдельном потоке
+    # ДАЙ БОТУ ВРЕМЯ ИНИЦИАЛИЗИРОВАТЬСЯ
+    import time
+    time.sleep(2)  # Ждем 2 секунды
+
+    # ЗАПУСКАЕМ POLLING
     from threading import Thread
     bot_thread = Thread(target=game_bot.application.run_polling)
     bot_thread.daemon = True
