@@ -1031,21 +1031,9 @@ if __name__ == '__main__':
         logging.error("BOT_TOKEN not configured!")
         exit(1)
 
+    # ПРОСТО ЗАПУСКАЕМ БОТА БЕЗ ПОТОКОВ
     game_bot = DiceGameBot()
-
-    # ДАЙ БОТУ ВРЕМЯ ИНИЦИАЛИЗИРОВАТЬСЯ
-    import time
-    time.sleep(2)  # Ждем 2 секунды
-
-    # ЗАПУСКАЕМ POLLING
-    from threading import Thread
-    bot_thread = Thread(target=game_bot.application.run_polling)
-    bot_thread.daemon = True
-    bot_thread.start()
-
-    port = int(os.getenv('PORT', 5000))
-    logging.info(f"Starting bot on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    game_bot.app.run_polling()
 
 
 
