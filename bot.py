@@ -1,3 +1,4 @@
+from telegram.ext import ApplicationBuilder
 from telegram import MenuButtonCommands, BotCommand
 import asyncio
 import logging
@@ -18,7 +19,6 @@ from telegram import Update
 from telegram.ext import Application, ContextTypes
 import asyncio
 
-application = None
 
 app = Flask(__name__)
 
@@ -87,6 +87,14 @@ class DiceGameBot:
         self.db = Database()
         self.config = Config()
         self.crypto_pay = CryptoPay(self.config.CRYPTO_PAY_TOKEN)
+
+        self.application = ApplicationBuilder().token(self.config.BOT_TOKEN).build()
+        self.register_handlers()
+
+    def register_handlers(self):
+        self.application.add_handler(CommandHandler("start", self.start))
+        self.application.add_handler(CallbackQueryHandler(self.button_handler))
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
     async def ask_custom_bet(self, query):
         """Запрашиваем произвольную сумму ставки"""
@@ -994,9 +1002,9 @@ def main():
 
     # СНАЧАЛА команды
     application.add_handler(CommandHandler("start", bot.start))
-    application.add_handler(CommandHandler("join", bot.join_command))
-    application.add_handler(CommandHandler("menu", bot.menu_command))
-    application.add_handler(CommandHandler("deposit", bot.deposit_command))
+    # application.add_handler(CommandHandler("join", bot.join_command))
+    # application.add_handler(CommandHandler("menu", bot.menu_command))
+    # application.add_handler(CommandHandler("deposit", bot.deposit_command))
 
     # Обработчик для "/join КОД" как текстового сообщения
     async def handle_join_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1031,9 +1039,9 @@ if __name__ == '__main__':
         logging.error("BOT_TOKEN not configured!")
         exit(1)
 
-    # ПРОСТО ЗАПУСКАЕМ БОТА БЕЗ ПОТОКОВ
     game_bot = DiceGameBot()
-    game_bot.app.run_polling()
+    game_bot.application.run_polling()
+
 
 
 
