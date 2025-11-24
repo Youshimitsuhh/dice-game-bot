@@ -2,6 +2,8 @@ from telegram.ext import ApplicationBuilder
 from telegram import MenuButtonCommands, BotCommand
 import asyncio
 import logging
+import time
+import uuid
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import random
@@ -89,10 +91,27 @@ class DiceGameBot:
         self.crypto_pay = CryptoPay(self.config.CRYPTO_PAY_TOKEN)
 
         self.application = ApplicationBuilder().token(self.config.BOT_TOKEN).build()
+
         self.register_handlers()
+        lobby_id = str(uuid.uuid4())
+        self.lobbies = {
+            lobby_id: {
+                "owner_id": ...,
+                "max_players": 3 / 4 / 5,
+                "players": {user_id: {"ready": False}},
+                "message_id": ...,
+                "timer": None,
+                "timer_end": None
+            }
+        }
+
 
     def register_handlers(self):
         self.application.add_handler(CommandHandler("start", self.start))
+        self.application.add_handler(CommandHandler("create", self.create_lobby_command))
+
+        self.application.add_handler(CallbackQueryHandler(self._handle_create_lobby_cb, pattern=r"^create_lobby:"))
+        self.application.add_handler(CallbackQueryHandler(self._handle_lobby_callbacks, pattern=r"^lobby_"))
         self.application.add_handler(CallbackQueryHandler(self.button_handler))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
@@ -812,6 +831,201 @@ class DiceGameBot:
 
         await update.message.reply_text(menu_text, reply_markup=reply_markup)
 
+    def _gen_lobby_id(self) -> str:
+        """Генерируем короткий уникальный id для лобби"""
+        return uuid.uuid4().hex[:8]
+
+    async def create_lobby_command(self, update, context):
+        """Команда /create — показывает выбор размера лобби (3/4/5)."""
+        keyboard = [
+            [InlineKeyboardButton("3 игрока", callback_data="create_lobby:3")],
+            [InlineKeyboardButton("4 игрока", callback_data="create_lobby:4")],
+            [InlineKeyboardButton("5 игроков", callback_data="create_lobby:5")],
+            [InlineKeyboardButton("Отмена", callback_data="create_lobby:cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Выберите размер лобби:", reply_markup=reply_markup)
+
+    async def _handle_lobby_callbacks(self, update, context):
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data  # Пример: "lobby_ready:<lobby_id>" или "lobby_start:<lobby_id>"
+        parts = data.split(":")
+        if len(parts) < 2:
+            return
+
+        action, lobby_id = parts[0], parts[1]
+        if lobby_id not in self.lobbies:
+            await query.edit_message_text("❌ Лобби не найдено или устарело.")
+            return
+
+        lobby = self.lobbies[lobby_id]
+        user_id = query.from_user.id
+
+        if action == "ready":
+            # Обновляем статус готовности игрока
+            players = lobby["players"]
+            for player in players:
+                if player["id"] == user_id:
+                    player["ready"] = not player.get("ready", False)  # переключаем статус
+                    break
+            else:
+                # Игрок не найден в лобби
+                await query.answer("Вы не в этом лобби", show_alert=True)
+                return
+
+            # Проверяем, все ли готовы
+            all_ready = all(player.get("ready", False) for player in players)
+
+            # Обновляем текст и клавиатуру лобби
+            text = self._lobby_text(lobby)
+            keyboard = self._lobby_keyboard(lobby, all_ready=all_ready)
+            await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+            if all_ready and not lobby.get("timer_started"):
+                lobby["timer_started"] = True
+                lobby["timer_expires_at"] = time.time() + 30  # через 30 сек стартуем
+                # Запускаем асинхронный таймер запуска
+                asyncio.create_task(self._start_game_after_delay(lobby_id, 30))
+
+        elif action == "start":
+            # Проверяем, что нажал создатель лобби и все готовы
+            if user_id != lobby["creator_id"]:
+                await query.answer("Только создатель может запустить игру", show_alert=True)
+                return
+
+            players = lobby["players"]
+            if not all(player.get("ready", False) for player in players):
+                await query.answer("Не все игроки готовы!", show_alert=True)
+                return
+
+            # Запускаем игру сразу
+            await self._start_game(lobby_id)
+
+
+    async def _build_lobby_text(self, lobby_id):
+        lobby = self.lobbies[lobby_id]
+        txt = f"🎮 <b>Лобби</b>\nID: <code>{lobby_id}</code>\n\n"
+
+        txt += f"Игроков: {len(lobby['players'])}/{lobby['max_players']}\n\n"
+
+        for uid, pdata in lobby["players"].items():
+            status = "🟢 Готов" if pdata["ready"] else "🔴 Не готов"
+            txt += f"• {uid} — {status}\n"
+
+        return txt
+
+    def _lobby_keyboard(self, lobby, all_ready=False):
+        buttons = []
+        for player in lobby["players"]:
+            status = "✅" if player.get("ready", False) else "❌"
+            buttons.append([InlineKeyboardButton(f"{player['username']} {status}", callback_data="noop")])
+
+        # Кнопка "Готов" для каждого игрока
+        buttons.append([InlineKeyboardButton("Готов", callback_data=f"lobby_ready:{lobby['id']}")])
+
+        # Кнопка "Начать игру" только для создателя и если все готовы
+        if all_ready:
+            buttons.append([InlineKeyboardButton("Начать игру", callback_data=f"lobby_start:{lobby['id']}")])
+
+        return InlineKeyboardMarkup(buttons)
+
+
+    # Вспомогательные async-функции:
+    async def _update_lobby_message(self, lobby):
+        """Обновляет текст/клавиатуру сообщения с лобби."""
+        try:
+            text = self._lobby_text(lobby)
+            keyboard = self._lobby_keyboard(lobby)
+            await self.application.bot.edit_message_text(
+                chat_id=lobby["message_chat_id"],
+                message_id=lobby["message_id"],
+                text=text,
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            # не критично: логируем, но продолжаем
+            print("Ошибка обновления лобби:", e)
+
+    async def _notify_creator_ready_all(self, lobby):
+        """Если все готовы, уведомим создателя (он может нажать Start) — можно также автозапустить."""
+        try:
+            chat_id = lobby["message_chat_id"]
+            creator_id = lobby["creator_id"]
+            await self.application.bot.send_message(chat_id=chat_id,
+                                                    text=f"Все игроки в лобби #{lobby['id']} готовы. Создатель @{lobby['creator_name']} может нажать «Начать игру» или игра начнётся автоматически.",
+                                                    )
+        except Exception as e:
+            print("notify error:", e)
+
+    async def _start_game(self, lobby_id):
+        lobby = self.lobbies.get(lobby_id)
+        if not lobby:
+            return
+
+        # Убираем лобби из списка активных (если нужно)
+        # Или ставим флаг, что игра запущена
+        lobby["game_started"] = True
+
+        # Сообщение всем игрокам
+        players_mentions = ", ".join(
+            [f"<a href='tg://user?id={p['id']}'>{p['username']}</a>" for p in lobby["players"]]
+        )
+        start_text = f"🎲 Игра началась!\nИгроки: {players_mentions}"
+
+        chat_id = lobby["message_chat_id"]
+        message_id = lobby["message_id"]
+
+        # Обновляем сообщение лобби
+        await self.application.bot.edit_message_text(
+            start_text,
+            chat_id=chat_id,
+            message_id=message_id,
+            parse_mode="HTML",
+        )
+
+        # Здесь запускаем логику игры (просто пример, замени на свою)
+        # Например, имитация броска кубиков
+        await asyncio.sleep(2)  # пауза для эффекта
+        results = {p["username"]: self.roll_dice() for p in lobby["players"]}
+
+        # Формируем текст с результатами
+        results_text = "Результаты бросков:\n" + "\n".join(
+            [f"{user}: {score}" for user, score in results.items()]
+        )
+
+        await self.application.bot.send_message(chat_id=chat_id, text=results_text)
+
+        # По окончании игры можно удалить лобби
+        del self.lobbies[lobby_id]
+
+    def roll_dice(self):
+        import random
+        return random.randint(1, 6)
+
+    async def _start_game_after_delay(self, lobby_id, delay):
+        await asyncio.sleep(delay)
+        lobby = self.lobbies.get(lobby_id)
+        if not lobby:
+            return  # лобби могло удалиться
+
+        players = lobby["players"]
+        if all(player.get("ready", False) for player in players):
+            await self._start_game(lobby_id)
+        else:
+            # Если кто-то отписался/не готов, сбрасываем таймер
+            lobby["timer_started"] = False
+            lobby["timer_expires_at"] = None
+            # Обновляем сообщение лобби с актуальным состоянием
+            chat_id = lobby["message_chat_id"]
+            message_id = lobby["message_id"]
+            text = self._lobby_text(lobby)
+            keyboard = self._lobby_keyboard(lobby, all_ready=False)
+            await self.application.bot.edit_message_text(text, chat_id=chat_id, message_id=message_id,
+            reply_markup=keyboard, parse_mode="HTML")
+
 
     async def show_deposit(self, query):
         keyboard = [
@@ -1032,8 +1246,10 @@ def main():
     application.run_polling()
 
 
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
+    app.run(host='0.0.0.0', port=8080)
 
     if not Config.BOT_TOKEN:
         logging.error("BOT_TOKEN not configured!")
