@@ -1,4 +1,4 @@
-# app/bot.py (обновляем)
+# app/bot.py (очищенный)
 import logging
 from telegram.ext import ApplicationBuilder
 
@@ -6,11 +6,13 @@ from database import Database
 from config import Config
 from cryptopay import CryptoPay
 
-# Импортируем наши обработчики
-from app.handlers.commands import register_command_handlers
-from app.handlers.buttons import register_button_handlers
-from app.handlers.messages import register_message_handlers
-from app.handlers.lobby_handlers import register_lobby_handlers  # <-- ДОБАВИЛИ
+# Импортируем все обработчики из пакета
+from app.handlers import (
+    register_command_handlers,
+    register_button_handlers,
+    register_message_handlers,
+    register_lobby_handlers
+)
 
 # Импортируем сервисы
 from app.services.lobby_manager import LobbyManager
@@ -27,12 +29,6 @@ class DiceGameBot:
 
         self.application = ApplicationBuilder().token(self.config.BOT_TOKEN).build()
 
-        # Временные хранилища
-        self.lobbies = {}  # TODO: Удалить после переноса всей логики
-        self.games = {}
-        self.duels = {}
-        self.active_duels = {}
-
         # Регистрируем обработчики
         self.register_handlers()
 
@@ -43,17 +39,13 @@ class DiceGameBot:
         logger = logging.getLogger(__name__)
         logger.info("📋 Регистрируем обработчики...")
 
-        # 1. Регистрируем команды
+        # ВАЖНО: Сначала специфичные обработчики
+        register_lobby_handlers(self.application, self)
+
+        # Потом общие обработчики
         register_command_handlers(self.application, self)
-
-        # 2. Регистрируем обработку кнопок
         register_button_handlers(self.application, self)
-
-        # 3. Регистрируем обработку сообщений
         register_message_handlers(self.application, self)
-
-        # 4. Регистрируем обработчики лобби
-        register_lobby_handlers(self.application, self)  # <-- ДОБАВИЛИ
 
         logger.info("✅ Обработчики зарегистрированы")
 

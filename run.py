@@ -1,3 +1,4 @@
+# run.py
 import logging
 from app.bot import DiceGameBot
 

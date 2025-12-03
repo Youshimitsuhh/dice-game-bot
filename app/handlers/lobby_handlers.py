@@ -16,7 +16,7 @@ def register_lobby_handlers(application, bot):
     # Обработчики для кнопок создания лобби
     application.add_handler(CallbackQueryHandler(
         lambda update, context: handle_lobby_callback(update, context, bot),
-        pattern=r"^(lobby_bet_|lobby_size_|lobby_custom_bet|lobby_cancel|create_lobby_menu)"  # <-- ДОБАВИЛИ
+        pattern=r"^(lobby_bet_|lobby_size_|lobby_custom_bet|lobby_cancel|create_lobby_menu)"
     ))
 
     # Обработчики действий в лобби
@@ -489,3 +489,39 @@ async def show_lobby_menu(query, bot):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(menu_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+
+async def handle_lobby_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Обработчик кнопок создания лобби"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    user_id = query.from_user.id
+
+    logger.info(f"🎮 Кнопка лобби: '{data}' от {user_id}")
+
+    if data == "create_lobby_menu":
+        await show_lobby_menu(query, bot)
+        return
+
+    elif data == "lobby_cancel":
+        await show_main_menu(query, bot)
+        return
+
+    elif data.startswith("lobby_bet_"):
+        # Кнопка выбора ставки: lobby_bet_10
+        bet_amount = float(data.split("_")[2])
+        await show_lobby_size_options(query, bet_amount, bot)
+
+    elif data == "lobby_custom_bet":
+        # Запрос произвольной ставки
+        context.user_data['waiting_for_lobby_bet'] = True
+        await ask_custom_lobby_bet(query, bot)
+
+    elif data.startswith("lobby_size_"):
+        # Кнопка выбора количества игроков: lobby_size_10_3
+        parts = data.split("_")
+        bet_amount = float(parts[2])
+        max_players = int(parts[3])
+        await create_lobby_with_bet(query, bet_amount, max_players, bot)
