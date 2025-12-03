@@ -14,6 +14,7 @@ class Database:
         self.add_crypto_pay_column()
         self.update_games_table()
         self.add_game_code_column()
+        self.create_lobbies_table()
 
     def get_connection(self):
         return sqlite3.connect(self.db_path, check_same_thread=False)
@@ -664,3 +665,26 @@ class Database:
             'check_result': check_result,
             'success': bool(winner_id and check_result and check_result.get('ok'))
         }
+
+    def create_lobbies_table(self):
+        """Создает таблицу для хранения лобби"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS lobbies (
+                id TEXT PRIMARY KEY,
+                creator_id INTEGER,
+                creator_name TEXT,
+                max_players INTEGER,
+                bet_amount REAL,
+                players TEXT,  -- JSON список игроков
+                status TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        conn.commit()
+        conn.close()
+        print("✅ Таблица lobbies создана/проверена")

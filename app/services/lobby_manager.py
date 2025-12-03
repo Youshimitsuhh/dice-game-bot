@@ -1,5 +1,6 @@
 # app/services/lobby_manager.py
 import uuid
+import json
 import asyncio
 import logging
 from typing import Dict, Optional
@@ -157,3 +158,57 @@ class LobbyManager:
         """Получает все активные лобби"""
         return {lid: lobby for lid, lobby in self.lobbies.items()
                 if lobby.status == "waiting"}
+
+    def save_lobby_to_db(self, lobby: Lobby):
+        """Сохраняет лобби в базу данных"""
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+
+            # Преобразуем игроков в JSON
+            players_json = json.dumps([p.to_dict() for p in lobby.players])
+
+            # Проверяем существует ли лобби в БД
+            cursor.execute("SELECT id FROM lobbies WHERE id = ?", (lobby.id,))
+            exists = cursor.fetchone()
+
+            if exists:
+                # Обновляем существующее
+                cursor.execute('''
+                    UPDATE lobbies 
+                    SET creator_id = ?, creator_name = ?, max_players = ?, 
+                        bet_amount = ?, players = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (
+                    lobby.creator_id,
+                    lobby.creator_name,
+                    lobby.max_players,
+                    lobby.bet_amount,
+                    players_json,
+                    lobby.status,
+                    lobby.id
+                ))
+            else:
+                # Вставляем новое
+                cursor.execute('''
+                    INSERT INTO lobbies 
+                    (id, creator_id, creator_name, max_players, bet_amount, players, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    lobby.id,
+                    lobby.creator_id,
+                    lobby.creator_name,
+                    lobby.max_players,
+                    lobby.bet_amount,
+                    players_json,
+                    lobby.status
+                ))
+
+            conn.commit()
+            conn.close()
+            logger.debug(f"💾 Лобби {lobby.id} сохранено в БД")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка сохранения лобби {lobby.id}: {e}")
+            return False
