@@ -1,35 +1,45 @@
-# test_imports.py
-print("🔍 Проверка импортов...")
+# test_duels.py
+import sys
+
+sys.path.insert(0, '.')
+
+print("🔍 Тестируем дуэли...")
 
 try:
-    from database import Database
+    # 1. Проверяем модель
+    from app.models.duel import Duel
 
-    print("✅ database.py импортирован")
+    print("✅ Модель Duel импортирована")
 
-    from config import Config
+    # 2. Проверяем менеджер
+    from app.services.duel_manager import DuelManager
 
-    print("✅ config.py импортирован")
+    print("✅ DuelManager импортирован")
 
-    from cryptopay import CryptoPay
+    # 3. Проверяем handlers
+    from app.handlers.duel_handlers import register_duel_handlers
 
-    print("✅ cryptopay.py импортирован")
+    print("✅ register_duel_handlers импортирован")
 
-    from app.bot import DiceGameBot
+    # 4. Тестируем создание дуэли
+    test_duel = Duel(
+        duel_id="TEST1234",
+        chat_id=-1001234567890,
+        creator_id=123,
+        creator_name="Test Creator",
+        bet_amount=50.0
+    )
+    print(f"✅ Тестовая дуэль создана: {test_duel.duel_id}")
 
-    print("✅ app.bot импортирован")
+    # 5. Проверяем методы
+    test_duel.add_roll(123, 5)
+    print(f"✅ Бросок добавлен: {test_duel.creator_rolls}")
 
-    from app.handlers.commands import register_command_handlers
+    print("\n🎉 ВСЕ ИМПОРТЫ ДУЭЛЕЙ РАБОТАЮТ!")
+    print("Можно тестировать /duel команду!")
 
-    print("✅ handlers.commands импортированы")
-
-    from app.services.lobby_manager import LobbyManager
-
-    print("✅ services.lobby_manager импортирован")
-
-    print("\n🎉 Все импорты работают!")
-
-except ImportError as e:
-    print(f"❌ Ошибка импорта: {e}")
+except Exception as e:
+    print(f"\n❌ ОШИБКА: {e}")
     import traceback
 
     traceback.print_exc()

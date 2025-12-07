@@ -155,8 +155,8 @@ class GameManager:
                 game.status = "finished"
                 game.winner_id = game.calculate_winner()
 
-                # Завершаем игру в БД (crypto_pay передадим позже)
-                # self.db.finish_game(game_id, None)
+                # TODO: Завершаем игру в БД с выплатами
+                # self.db.finish_game(game_id, crypto_pay)
 
             return game, None
 
@@ -224,4 +224,3 @@ class GameManager:
             return game
 
         return None
-

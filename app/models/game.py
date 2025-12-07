@@ -76,5 +76,3 @@ class PvPGame:
     def generate_game_code() -> str:
         """Генерирует код игры (6 символов)"""
         return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-
-
