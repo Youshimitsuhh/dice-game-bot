@@ -1,15 +1,18 @@
 import logging
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 from datetime import datetime
 from ..models.game import PvPGame
+import asyncio
 
 
 class GameManager:
     """Менеджер игр 1 на 1"""
 
-    def __init__(self, database):
+    def __init__(self, database, payment_manager=None):
         self.db = database
+        self.payment_manager = payment_manager
         self.active_games: Dict[int, PvPGame] = {}
+        self.game_messages: Dict[int, List[Dict[str, int]]] = {}
         self.logger = logging.getLogger(__name__)
 
     def create_game(self, creator_id: int, creator_name: str,
@@ -108,8 +111,8 @@ class GameManager:
             self.logger.error(f"Ошибка присоединения к игре: {e}")
             return None, f"Ошибка присоединения: {str(e)}"
 
-    def process_dice_roll(self, game_id: int, player_id: int,
-                          dice_value: int) -> Tuple[Optional[PvPGame], Optional[str]]:
+    async def process_dice_roll(self, game_id: int, player_id: int,
+                                dice_value: int) -> Tuple[Optional[PvPGame], Optional[str]]:
         """Обрабатывает бросок костей"""
         try:
             # Проверяем, что игра существует
@@ -155,16 +158,126 @@ class GameManager:
                 game.status = "finished"
                 game.winner_id = game.calculate_winner()
 
-                # TODO: Завершаем игру в БД с выплатами
-                # self.db.finish_game(game_id, crypto_pay)
+                # Сохраняем в БД
+                self.db.finish_game(game_id, None)
 
+                # Обрабатываем выплату победителю
+                await self._process_game_payout(game)
+
+                return game, None
+
+            # ВАЖНО: Добавляем возврат если игра еще не завершена
             return game, None
 
         except Exception as e:
             self.logger.error(f"Ошибка обработки броска: {e}")
             return None, f"Ошибка броска: {str(e)}"
 
-    def cancel_game(self, game_id: int, user_id: int) -> Tuple[bool, Optional[str]]:
+
+    async def _process_game_payout(self, game):
+        """Обрабатывает выплаты по завершенной игре"""
+        try:
+            if not game.winner_id:
+                self.logger.error(f"Нет победителя в игре {game.id}")
+                return
+
+            # Общий банк = 2 ставки
+            total_bank = game.bet_amount * 2
+            commission = total_bank * 0.08  # 8% комиссия
+            winner_amount = total_bank - commission
+
+            # Создаем выплату победителю через payment_manager
+            if self.payment_manager:
+                try:
+                    payment, error = await self.payment_manager.create_withdrawal(
+                        user_id=game.winner_id,
+                        amount_usd=winner_amount,
+                        description=f"Выигрыш в игре #{game.game_code}"
+                    )
+
+                    if payment:
+                        self.logger.info(
+                            f"✅ Выплата создана для игры {game.game_code}: {winner_amount:.2f}$ для пользователя {game.winner_id}")
+                    else:
+                        self.logger.error(f"❌ Ошибка создания выплаты для игры {game.game_code}: {error}")
+
+                        # Если ошибка в payment_manager, хотя бы зачисляем на баланс
+                        self.db.update_balance(game.winner_id, winner_amount)
+                        self.logger.info(f"⚠️ Средства зачислены на баланс из-за ошибки платежа")
+                except Exception as e:
+                    self.logger.error(f"❌ Исключение в payment_manager: {e}")
+                    # Запасной вариант: зачисляем на баланс
+                    self.db.update_balance(game.winner_id, winner_amount)
+            else:
+                # Если нет payment_manager, просто обновляем баланс
+                self.db.update_balance(game.winner_id, winner_amount)
+                self.logger.info(f"⚠️ PaymentManager не доступен, баланс обновлен: +{winner_amount:.2f}$")
+
+        except Exception as e:
+            self.logger.error(f"❌ Критическая ошибка в _process_game_payout: {e}")
+
+    async def process_game_result(self, game, context, bot):
+        """Обрабатывает результат завершенной игры с выплатой"""
+        try:
+            total_bank = game.bet_amount * 2
+            commission = total_bank * 0.08  # 8%
+            winner_amount = total_bank - commission
+
+            winner_id = game.winner_id
+            winner_name = game.player1_name if winner_id == game.player1_id else game.player2_name
+
+            # 1. Уведомляем игроков
+            winner_text = (
+                f"🏆 Поздравляем с победой!\n"
+                f"💰 Ваш выигрыш: ${winner_amount:.2f}\n"
+                f"🎮 Противник: {game.player2_name if winner_id == game.player1_id else game.player1_name}"
+            )
+
+            loser_id = game.player2_id if winner_id == game.player1_id else game.player1_id
+            loser_text = (
+                f"😔 Вы проиграли\n"
+                f"💰 Потеряно: ${game.bet_amount:.2f}\n"
+                f"🎮 Победитель: {winner_name}"
+            )
+
+            await context.bot.send_message(chat_id=winner_id, text=winner_text)
+            await context.bot.send_message(chat_id=loser_id, text=loser_text)
+
+            # 2. Создаем чек победителю через payment_manager
+            if hasattr(bot, 'payment_manager'):
+                try:
+                    # Создаем выплату победителю
+                    payment, error = await bot.payment_manager.create_withdrawal(
+                        user_id=winner_id,
+                        amount_usd=winner_amount,
+                        description=f"Выигрыш в игре #{game.id}"
+                    )
+
+                    if payment:
+                        self.logger.info(
+                            f"✅ Чек создан для победителя {winner_name}: ${winner_amount:.2f}")
+                        await context.bot.send_message(
+                            chat_id=winner_id,
+                            text=f"💰 Чек на ${winner_amount:.2f} создан! Ожидайте выплаты."
+                        )
+                    else:
+                        self.logger.error(f"❌ Ошибка создания чека: {error}")
+                        await context.bot.send_message(
+                            chat_id=winner_id,
+                            text=f"⚠️ Ошибка выплаты: {error}"
+                        )
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка payment_manager: {e}")
+
+            # 3. Обновляем статистику в БД
+            bot.db.update_balance(winner_id, winner_amount)
+
+            self.logger.info(f"🎮 Игра {game.id} завершена. Победитель: {winner_name}")
+
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обработки результата: {e}")
+
+    async def cancel_game(self, game_id: int, user_id: int, context=None) -> Tuple[bool, Optional[str]]:
         """Отменяет игру и возвращает средства"""
         try:
             # Проверяем, что игра существует
@@ -186,6 +299,22 @@ class GameManager:
 
             # Удаляем игру из БД
             self.db.cancel_game(game_id)
+
+            # Удаляем только сохраненные сообщения (теперь их 2)
+            if context and game_id in self.game_messages:
+                self.logger.info(f"Удаляем сообщения игры {game_id}: {self.game_messages[game_id]}")
+
+                for msg_data in self.game_messages[game_id]:
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=msg_data["chat_id"],
+                            message_id=msg_data["message_id"]
+                        )
+                    except Exception as e:
+                        if "Message to delete not found" not in str(e):
+                            self.logger.warning(f"Не удалось удалить сообщение {msg_data}: {e}")
+
+                del self.game_messages[game_id]
 
             # Удаляем из активных игр
             if game_id in self.active_games:
@@ -224,3 +353,5 @@ class GameManager:
             return game
 
         return None
+
+

@@ -666,6 +666,24 @@ class Database:
             'success': bool(winner_id and check_result and check_result.get('ok'))
         }
 
+    def cancel_game(self, game_id: int) -> bool:
+        """Отменяет игру по ID"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE games 
+                SET status = 'cancelled', finished_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'waiting' AND player2_id IS NULL
+            ''', (game_id,))
+            conn.commit()
+            conn.close()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"Ошибка отмены игры {game_id}: {e}")
+            return False
+
+
     def create_lobbies_table(self):
         """Создает таблицу для хранения лобби"""
         conn = self.get_connection()

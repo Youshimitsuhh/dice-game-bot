@@ -10,6 +10,12 @@ def register_message_handlers(application, bot):
     """Регистрируем обработчики текстовых сообщений"""
     logger.info("💬 Регистрируем обработчики сообщений")
 
+    # Обработчик произвольных ставок
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        lambda update, context: handle_bet_message(update, context)
+    ))
+
     # Обработчик текстовых сообщений (не команд)
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
@@ -71,6 +77,77 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
             # Только если это не команда
             if not message_text.startswith('/'):
                 await show_menu_from_message(update, bot)
+
+
+async def handle_bet_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка произвольной суммы ставки"""
+    if not update.message or not update.message.text:
+        return
+
+    user = update.effective_user
+    text = update.message.text.strip()
+
+    try:
+        bot = context.application.bot_data.get('bot_instance')
+        if not bot:
+            return
+
+        # Проверяем, ожидаем ли мы ставку
+        if context.user_data.get('waiting_for_bet'):
+            del context.user_data['waiting_for_bet']
+
+            try:
+                amount = float(text)
+
+                # Проверки суммы
+                if amount < 1.0:
+                    await update.message.reply_text("❌ Минимальная ставка: $1")
+                    return
+
+                if amount > 1000.0:
+                    await update.message.reply_text("❌ Максимальная ставка: $1000")
+                    return
+
+                # Проверяем баланс
+                user_data = bot.db.get_user(user.id)
+                if not user_data:
+                    await update.message.reply_text("❌ Пользователь не найден")
+                    return
+
+                balance = user_data[4]
+                if balance < amount:
+                    await update.message.reply_text(
+                        f"❌ Недостаточно средств!\n"
+                        f"Ваш баланс: ${balance:.0f}\n"
+                        f"Требуется: ${amount:.0f}",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("💳 Пополнить", callback_data="deposit")],
+                            [InlineKeyboardButton("🔙 Назад", callback_data="find_game")]
+                        ])
+                    )
+                    return
+
+                # Создаем игру (заглушка)
+                await update.message.reply_text(
+                    f"🎲 Создание игры на ${amount:.0f}\n\n"
+                    "⚠️ Функция в разработке...\n"
+                    "Скоро будет доступно!",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+                    ])
+                )
+
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Пожалуйста, введите корректную сумму (например: 15 или 75.5)",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔙 Назад", callback_data="find_game")]
+                    ])
+                )
+
+    except Exception as e:
+        logger.error(f"Ошибка обработки ставки: {e}")
+        await update.message.reply_text("❌ Произошла ошибка при создании игры")
 
 
 async def handle_bet_input(update, message_text, bot):

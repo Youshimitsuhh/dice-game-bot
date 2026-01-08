@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, Tuple, List
 from datetime import datetime
 import uuid
+import asyncio
 
 from ..models.duel import Duel
 
@@ -10,8 +11,9 @@ from ..models.duel import Duel
 class DuelManager:
     """Менеджер дуэлей в групповых чатах"""
 
-    def __init__(self, database):
+    def __init__(self, database, payment_manager=None):
         self.db = database
+        self.payment_manager = payment_manager
         self.active_duels: Dict[str, Duel] = {}  # duel_id -> Duel
         self.chat_duels: Dict[int, str] = {}  # chat_id -> duel_id (активная дуэль в чате)
         self.logger = logging.getLogger(__name__)
@@ -122,8 +124,7 @@ class DuelManager:
                 duel.finished_at = datetime.now()
                 duel.winner_id = duel.calculate_winner()
 
-                # TODO: Обработка выплат
-                # self._process_duel_payout(duel)
+                asyncio.create_task(self._process_duel_payout(duel))
 
             return duel, None
 
@@ -170,10 +171,6 @@ class DuelManager:
         """Получает дуэль по ID"""
         return self.active_duels.get(duel_id)
 
-    def _process_duel_payout(self, duel: Duel):
-        """Обрабатывает выплаты по дуэли (заглушка)"""
-        # TODO: Реализовать выплаты через crypto_pay
-        pass
 
     def cleanup_old_duels(self, hours_old: int = 24):
         """Очищает старые дуэли"""
@@ -199,3 +196,45 @@ class DuelManager:
 
         except Exception as e:
             self.logger.error(f"Ошибка очистки старых дуэлей: {e}")
+
+    async def _process_duel_payout(self, duel: Duel):
+        """Обрабатывает выплаты по завершенной дуэли"""
+        try:
+            if not duel.winner_id:
+                self.logger.error(f"Нет победителя в дуэли {duel.duel_id}")
+                return
+
+            # Общий банк = 2 ставки
+            total_bank = duel.bet_amount * 2
+            commission = total_bank * 0.08  # 8% комиссия
+            winner_amount = total_bank - commission
+
+            # Создаем выплату победителю через payment_manager
+            if self.payment_manager:
+                try:
+                    payment, error = await self.payment_manager.create_withdrawal(
+                        user_id=duel.winner_id,
+                        amount_usd=winner_amount,
+                        description=f"Выигрыш в дуэли #{duel.duel_id}"
+                    )
+
+                    if payment:
+                        self.logger.info(
+                            f"✅ Выплата создана для дуэли {duel.duel_id}: {winner_amount:.2f}$ для пользователя {duel.winner_id}")
+                    else:
+                        self.logger.error(f"❌ Ошибка создания выплаты для дуэли {duel.duel_id}: {error}")
+
+                        # Если ошибка в payment_manager, хотя бы зачисляем на баланс
+                        self.db.update_balance(duel.winner_id, winner_amount)
+                        self.logger.info(f"⚠️ Средства зачислены на баланс из-за ошибки платежа")
+                except Exception as e:
+                    self.logger.error(f"❌ Исключение в payment_manager: {e}")
+                    # Запасной вариант: зачисляем на баланс
+                    self.db.update_balance(duel.winner_id, winner_amount)
+            else:
+                # Если нет payment_manager, просто обновляем баланс
+                self.db.update_balance(duel.winner_id, winner_amount)
+                self.logger.info(f"⚠️ PaymentManager не доступен, баланс обновлен: +{winner_amount:.2f}$")
+
+        except Exception as e:
+            self.logger.error(f"❌ Критическая ошибка в _process_duel_payout: {e}")

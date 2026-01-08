@@ -1,4 +1,4 @@
-python-telegram-bot==21.0
+python-telegram-bot[job-queue]==20.7
+aiocryptopay==1.0.0
+httpx==0.25.1
 python-dotenv==1.0.0
-requests==2.31.0
-flask==2.3.3

@@ -28,6 +28,21 @@ def register_command_handlers(application, bot):
     application.add_handler(CommandHandler("join_lobby",
                                            lambda update, context: join_lobby_command(update, context, bot)))
 
+    # АДМИН-КОМАНДЫ
+    application.add_handler(CommandHandler("admin",
+                                           lambda update, context: admin_command(update, context, bot)))
+    application.add_handler(CommandHandler("admin_stats",
+                                           lambda update, context: admin_stats_command(update, context, bot)))
+    application.add_handler(CommandHandler("admin_user",
+                                           lambda update, context: admin_user_command(update, context, bot)))
+    application.add_handler(CommandHandler("admin_balance",
+                                           lambda update, context: admin_balance_command(update, context, bot)))
+    application.add_handler(CommandHandler("admin_payments",
+                                           lambda update, context: admin_payments_command(update, context, bot)))
+    application.add_handler(CommandHandler("admin_broadcast",
+                                           lambda update, context: admin_broadcast_command(update, context, bot)))
+
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
     """Обработчик команды /start с поддержкой глубоких ссылок"""
@@ -65,12 +80,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot)
         game_code = context.args[0][5:]  # Убираем 'join_'
         logger.info(f"🔗 Присоединение к игре через deep link: {game_code}")
 
-        # TODO: Реализовать присоединение к игре 1 на 1
-        await update.message.reply_text(
-            f"🎮 Присоединение к игре {game_code}\n\n"
-            "⚠️ Функция в разработке...\n"
-            "Пока используйте команду: /join <код>"
-        )
+        # ВЫЗЫВАЕМ join_game_command вместо заглушки
+        # Нужно имитировать вызов команды /join
+        context.args = [game_code]  # Устанавливаем аргументы для join_game_command
+        await join_game_command(update, context, bot)
         return
 
     # 3. Старая обработка (для обратной совместимости)
@@ -111,21 +124,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot)
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
-    """Обработчик /menu"""
-    user = update.effective_user
-    chat = update.effective_chat
+    """Обработчик команды /menu"""
+    # Если это callback query (из кнопки)
+    if hasattr(update, 'callback_query') and update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        user_id = query.from_user.id
+    else:
+        # Если это команда из сообщения
+        user_id = update.effective_user.id
+        query = None
 
-    if chat.type in ["group", "supergroup"]:
-        await update.message.reply_text(
-            "❌ Меню доступно только в личном чате с ботом."
-        )
-        return
-
-    # Регистрируем если не зарегистрирован
-    bot.db.register_user(user.id, user.username, user.first_name)
-
-    # Получаем баланс
-    stats = bot.db.get_user_stats(user.id)
+    stats = bot.db.get_user_stats(user_id)
     balance = stats[1] if stats else 0
 
     menu_text = (
@@ -139,12 +149,65 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
         [InlineKeyboardButton("👥 Создать лобби", callback_data="create_lobby_menu")],
         [InlineKeyboardButton("📊 Моя статистика", callback_data="stats")],
         [InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit"),
-         InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],
+         InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],  # ← ШИРОКОЕ МЕНЮ
+        [InlineKeyboardButton("❓ Помощь", callback_data="help")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if query:
+        await query.edit_message_text(menu_text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(menu_text, reply_markup=reply_markup)
+
+
+async def show_main_menu_from_message(update: Update, bot):
+    """Показывает главное меню из сообщения"""
+    user_id = update.effective_user.id
+    stats = bot.db.get_user_stats(user_id)
+    balance = stats[1] if stats else 0
+
+    menu_text = (
+        f"🎲 Главное меню\n\n"
+        f"💰 Баланс: ${balance:.0f}\n"
+        "Выберите действие:"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("🎯 Создать игру", callback_data="find_game")],
+        [InlineKeyboardButton("👥 Создать лобби", callback_data="create_lobby_menu")],
+        [InlineKeyboardButton("📊 Моя статистика", callback_data="stats")],
+        [InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit")],
+        [InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],
         [InlineKeyboardButton("❓ Помощь", callback_data="help")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(menu_text, reply_markup=reply_markup)
+
+
+async def show_main_menu_from_callback(query, bot):
+    """Показывает главное меню из callback query"""
+    user_id = query.from_user.id
+    stats = bot.db.get_user_stats(user_id)
+    balance = stats[1] if stats else 0
+
+    menu_text = (
+        f"🎲 Главное меню\n\n"
+        f"💰 Баланс: ${balance:.0f}\n"
+        "Выберите действие:"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("🎯 Создать игру", callback_data="find_game")],
+        [InlineKeyboardButton("👥 Создать лобби", callback_data="create_lobby_menu")],
+        [InlineKeyboardButton("📊 Моя статистика", callback_data="stats")],
+        [InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit")],
+        [InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],
+        [InlineKeyboardButton("❓ Помощь", callback_data="help")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(menu_text, reply_markup=reply_markup)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
@@ -307,3 +370,332 @@ async def join_lobby_from_deeplink(update, lobby_id, bot):
                 logger.error(f"❌ Ошибка обновления сообщения лобби: {e}")
     else:
         await update.message.reply_text(f"❌ {message}")
+
+
+async def join_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Обработка присоединения через deep link"""
+    try:
+        if not context.args:
+            return
+
+        game_code = context.args[0]
+        user_id = update.effective_user.id
+        user_name = update.effective_user.username or update.effective_user.first_name
+
+        # Присоединяемся к игре
+        game, error = bot.game_manager.join_game(game_code, user_id, user_name)
+
+        if error:
+            await update.message.reply_text(f"❌ {error}")
+            return
+
+        # Успех
+        keyboard = [[InlineKeyboardButton("🎲 Бросить кости", callback_data=f"roll_{game.id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"✅ Вы присоединились к игре {game.game_code}!\n"
+            f"💰 Ставка: ${game.bet_amount:.0f}\n"
+            f"🎲 Готовы бросить кости?",
+            reply_markup=reply_markup
+        )
+
+        # Уведомляем создателя
+        try:
+            await context.bot.send_message(
+                chat_id=game.player1_id,
+                text=f"✅ Игрок {user_name} присоединился к вашей игре {game.game_code}!",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Ошибка уведомления создателя: {e}")
+
+
+    except Exception as e:
+        logger.error(f"Ошибка присоединения через deep link: {e}")
+        await update.message.reply_text("❌ Ошибка присоединения к игре")
+
+
+# ============ АДМИН-КОМАНДЫ ============
+
+# Список админов (добавьте свои ID)
+ADMIN_IDS = [942523120, 5558886328]  # Ваш ID
+
+
+async def check_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Проверка прав администратора"""
+    user_id = update.effective_user.id
+    if user_id in ADMIN_IDS:
+        return True
+
+    await update.message.reply_text("❌ Доступ запрещен. Только для администраторов.")
+    return False
+
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Главная админ-панель: /admin"""
+    if not await check_admin(update, context):
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton("💰 Платежи", callback_data="admin_payments")],
+        [InlineKeyboardButton("👤 Управление пользователями", callback_data="admin_users")],
+        [InlineKeyboardButton("🎮 Управление играми", callback_data="admin_games")],
+        [InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton("⚙️ Настройки", callback_data="admin_settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "🛠️ **Панель администратора**\n\n"
+        "Выберите раздел:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+
+async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Статистика бота: /admin_stats"""
+    if not await check_admin(update, context):
+        return
+
+    try:
+        # Получаем статистику из БД
+        cursor = bot.db.get_connection().cursor()
+
+        # Пользователи
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+
+        # Активные пользователи за 24 часа
+        cursor.execute("""
+            SELECT COUNT(*) FROM users 
+            WHERE last_active > datetime('now', '-1 day')
+        """)
+        active_users = cursor.fetchone()[0]
+
+        # Игры
+        cursor.execute("SELECT COUNT(*) FROM games WHERE status = 'finished'")
+        finished_games = cursor.fetchone()[0]
+
+        cursor.execute("SELECT SUM(bet_amount * 2) FROM games WHERE status = 'finished'")
+        total_bet = cursor.fetchone()[0] or 0
+
+        cursor.execute("SELECT COUNT(*) FROM games WHERE status = 'active'")
+        active_games = cursor.fetchone()[0]
+
+        # Платежи
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN payment_type = 'deposit' AND status = 'completed' THEN amount ELSE 0 END),
+                SUM(CASE WHEN payment_type = 'withdraw' AND status = 'completed' THEN amount ELSE 0 END)
+            FROM payments
+        """)
+        payments = cursor.fetchone()
+        total_deposits = payments[0] or 0
+        total_withdrawals = payments[1] or 0
+
+        # Балансы
+        cursor.execute("SELECT SUM(balance) FROM users")
+        total_balance = cursor.fetchone()[0] or 0
+
+        stats_text = (
+            f"📊 **Статистика бота**\n\n"
+            f"👥 Пользователи:\n"
+            f"• Всего: {total_users}\n"
+            f"• Активные (24ч): {active_users}\n\n"
+            f"🎮 Игры:\n"
+            f"• Завершено: {finished_games}\n"
+            f"• Активные: {active_games}\n"
+            f"• Общий оборот: ${total_bet:.2f}\n\n"
+            f"💰 Финансы:\n"
+            f"• Депозиты: ${total_deposits:.2f}\n"
+            f"• Выводы: ${total_withdrawals:.2f}\n"
+            f"• Балансы пользователей: ${total_balance:.2f}\n"
+            f"• Комиссия бота: ${total_deposits - total_withdrawals:.2f}"
+        )
+
+        await update.message.reply_text(stats_text, parse_mode='Markdown')
+
+    except Exception as e:
+        logger.error(f"Ошибка получения статистики: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+
+
+async def admin_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Информация о пользователе: /admin_user <user_id>"""
+    if not await check_admin(update, context):
+        return
+
+    try:
+        if not context.args:
+            await update.message.reply_text("Использование: /admin_user <user_id>")
+            return
+
+        user_id = int(context.args[0])
+
+        # Получаем информацию о пользователе
+        user = bot.db.get_user(user_id)
+        if not user:
+            await update.message.reply_text(f"❌ Пользователь {user_id} не найден")
+            return
+
+        # Получаем статистику игр
+        cursor = bot.db.get_connection().cursor()
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_games,
+                SUM(CASE WHEN (p1_tg_id = ? AND winner_id = ?) OR (p2_tg_id = ? AND winner_id = ?) THEN 1 ELSE 0 END) as wins
+            FROM games 
+            WHERE status = 'finished'
+        """, (user_id, user_id, user_id, user_id))
+
+        games_stats = cursor.fetchone()
+        total_games = games_stats[0] or 0
+        wins = games_stats[1] or 0
+
+        user_info = (
+            f"👤 **Информация о пользователе**\n\n"
+            f"🆔 ID: {user[0]}\n"
+            f"📛 Имя: {user[2]}\n"
+            f"👤 Username: @{user[1] or 'нет'}\n"
+            f"💰 Баланс: ${user[4]:.2f}\n"
+            f"🕐 Регистрация: {user[5]}\n"
+            f"🔄 Последняя активность: {user[6] or 'никогда'}\n\n"
+            f"🎮 **Статистика игр:**\n"
+            f"• Всего игр: {total_games}\n"
+            f"• Побед: {wins}\n"
+            f"• Поражений: {total_games - wins}\n"
+            f"• Winrate: {wins / max(total_games, 1) * 100:.1f}%"
+        )
+
+        await update.message.reply_text(user_info, parse_mode='Markdown')
+
+    except Exception as e:
+        logger.error(f"Ошибка admin_user: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+
+
+async def admin_balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Изменение баланса: /admin_balance <user_id> <сумма>"""
+    if not await check_admin(update, context):
+        return
+
+    try:
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "Использование: /admin_balance <user_id> <сумма>\n"
+                "Пример: /admin_balance 123456789 100"
+            )
+            return
+
+        user_id = int(context.args[0])
+        amount = float(context.args[1])
+
+        # Обновляем баланс
+        bot.db.update_balance(user_id, amount)
+
+        # Получаем новый баланс
+        user = bot.db.get_user(user_id)
+        new_balance = user[4] if user else amount
+
+        await update.message.reply_text(
+            f"✅ Баланс пользователя {user_id} изменен\n"
+            f"💰 Добавлено: ${amount:.2f}\n"
+            f"💳 Новый баланс: ${new_balance:.2f}"
+        )
+
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат числа")
+    except Exception as e:
+        logger.error(f"Ошибка admin_balance: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+
+
+async def admin_payments_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Просмотр платежей: /admin_payments [статус]"""
+    if not await check_admin(update, context):
+        return
+
+    try:
+        status_filter = context.args[0] if context.args else None
+
+        cursor = bot.db.get_connection().cursor()
+
+        if status_filter:
+            cursor.execute("""
+                SELECT payment_id, user_id, amount, payment_type, status, created_at 
+                FROM payments 
+                WHERE status = ? 
+                ORDER BY created_at DESC 
+                LIMIT 20
+            """, (status_filter,))
+        else:
+            cursor.execute("""
+                SELECT payment_id, user_id, amount, payment_type, status, created_at 
+                FROM payments 
+                ORDER BY created_at DESC 
+                LIMIT 20
+            """)
+
+        payments = cursor.fetchall()
+
+        if not payments:
+            await update.message.reply_text("📭 Платежей не найдено")
+            return
+
+        payment_list = "💰 **Последние платежи:**\n\n"
+        for payment in payments:
+            payment_id, user_id, amount, p_type, status, created_at = payment
+            payment_list += (
+                f"🆔 {payment_id}\n"
+                f"👤 {user_id} | {p_type} | ${amount:.2f}\n"
+                f"📊 {status} | {created_at}\n"
+                f"────────────────────\n"
+            )
+
+        await update.message.reply_text(payment_list[:4000], parse_mode='Markdown')
+
+    except Exception as e:
+        logger.error(f"Ошибка admin_payments: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+
+
+async def admin_broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Рассылка сообщения всем пользователям: /admin_broadcast <текст>"""
+    if not await check_admin(update, context):
+        return
+
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "Использование: /admin_broadcast <текст сообщения>\n\n"
+                "Пример: /admin_broadcast Новое обновление! Добавлены новые игры."
+            )
+            return
+
+        message_text = " ".join(context.args)
+
+        # Подтверждение
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, отправить", callback_data=f"broadcast_confirm_{hash(message_text)}")],
+            [InlineKeyboardButton("❌ Нет, отменить", callback_data="broadcast_cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            f"📢 **Предпросмотр рассылки:**\n\n"
+            f"{message_text}\n\n"
+            f"----------------\n"
+            f"ℹ️ Отправить это сообщение всем пользователям?",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+        # Сохраняем текст в контексте
+        context.user_data['broadcast_text'] = message_text
+
+    except Exception as e:
+        logger.error(f"Ошибка admin_broadcast: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")

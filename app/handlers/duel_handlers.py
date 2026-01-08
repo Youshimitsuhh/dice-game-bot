@@ -96,13 +96,12 @@ async def create_open_duel(update: Update, context: ContextTypes.DEFAULT_TYPE, b
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message = await update.message.reply_text(
-            f"⚔ **ОТКРЫТАЯ ДУЭЛЬ!**\n\n"
+            f"⚔ ОТКРЫТАЯ ДУЭЛЬ!\n\n"
             f"🎯 {user.first_name} вызывает любого на дуэль!\n"
-            f"💰 **Ставка: ${bet_amount:.0f}**\n\n"
+            f"💰 Ставка: ${bet_amount:.0f}\n\n"
             f"Первый принявший получает вызов!\n"
-            f"Дуэль ID: `{duel.duel_id}`",
+            f"Дуэль ID: {duel.duel_id}",
             reply_markup=reply_markup,
-            parse_mode='Markdown'
         )
 
         # Сохраняем ID сообщения
@@ -130,9 +129,9 @@ async def create_targeted_duel(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            f"⚔ **ВЫЗОВ НА ДУЭЛЬ!**\n\n"
+            f"⚔ ВЫЗОВ НА ДУЭЛЬ!\n\n"
             f"🎯 {user.first_name} вызывает @{target_username}!\n"
-            f"💰 **Ставка: ${bet_amount:.0f}**\n\n"
+            f"💰 Ставка: ${bet_amount:.0f}\n\n"
             f"@{target_username}, принимаешь вызов?",
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -146,6 +145,7 @@ async def create_targeted_duel(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_duel_accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка принятия дуэли"""
     query = update.callback_query
+    print(f"🔥 DEBUG: Duel accept called! data={query.data}")
     await query.answer()
 
     try:
@@ -174,14 +174,18 @@ async def handle_duel_accept(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.answer(f"❌ {error}", show_alert=True)
             return
 
-        # Обновляем сообщение
-        await query.edit_message_text(
-            f"⚔ **ДУЭЛЬ ПРИНЯТА!**\n\n"
+        # Обновляем сообщение - УБРАЛИ parse_mode='Markdown'
+        new_text = (
+            f"⚔ ДУЭЛЬ ПРИНЯТА!\n\n"
             f"🎯 {duel.creator_name} vs {duel.opponent_name}\n"
             f"💰 Ставка: ${duel.bet_amount:.0f}\n"
             f"🏆 Победитель забирает: ${duel.bet_amount * 2 * 0.92:.0f}\n\n"
-            f"🎲 Первым бросает {duel.creator_name}!",
-            parse_mode='Markdown'
+            f"🎲 Первым бросает {duel.creator_name}!"
+        )
+
+        await query.edit_message_text(
+            text=new_text,
+            # УБРАЛИ parse_mode='Markdown' - используем обычный текст
         )
 
         # Отправляем кнопку для первого броска
@@ -194,7 +198,7 @@ async def handle_duel_accept(update: Update, context: ContextTypes.DEFAULT_TYPE)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.message.reply_text(
-            f"🎲 **НАЧАЛО ДУЭЛИ!**\n"
+            f"🎲 НАЧАЛО ДУЭЛИ!\n"
             f"У каждого игрока по 3 броска.\n"
             f"Суммируются все выпавшие значения.",
             reply_markup=reply_markup
@@ -258,10 +262,10 @@ async def handle_duel_roll(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Формируем сообщение о результате
         result_text = (
-            f"🎲 **{player_name}** - бросок {rolls_count}/3\n"
-            f"🎯 Выпало: **{dice_value}**\n"
+            f"🎲 {player_name} - бросок {rolls_count}/3\n"
+            f"🎯 Выпало: {dice_value}\n"
             f"📊 Броски: {', '.join(map(str, current_rolls))}\n"
-            f"💰 Сумма: **{current_total}**\n\n"
+            f"💰 Сумма: {current_total}\n\n"
         )
 
         # Проверяем состояние дуэли
@@ -346,17 +350,17 @@ async def process_duel_result(duel, chat_id: int, context: ContextTypes.DEFAULT_
     """Обрабатывает результат завершенной дуэли"""
     try:
         result_text = (
-            f"🏆 **ДУЭЛЬ ЗАВЕРШЕНА!**\n\n"
+            f"🏆 ДУЭЛЬ ЗАВЕРШЕНА!\n\n"
             f"🎯 {duel.creator_name}: {duel.creator_total} очков\n"
             f"🎯 {duel.opponent_name}: {duel.opponent_total} очков\n\n"
         )
 
         if duel.winner_id:
             winner_name = duel.creator_name if duel.winner_id == duel.creator_id else duel.opponent_name
-            result_text += f"🏆 **ПОБЕДИТЕЛЬ: {winner_name}!**\n"
+            result_text += f"🏆 ПОБЕДИТЕЛЬ: {winner_name}!\n"
             result_text += f"💰 Выигрыш: ${duel.bet_amount * 2 * 0.92:.0f}\n"
         else:
-            result_text += "🤝 **НИЧЬЯ!**\n"
+            result_text += "🤝 НИЧЬЯ!\n"
             result_text += "💰 Ставки возвращены обоим игрокам\n"
 
         result_text += f"\n📅 Дуэль ID: `{duel.duel_id}`"
