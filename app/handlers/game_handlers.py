@@ -27,12 +27,25 @@ async def show_bet_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['action'] = 'create_game'
 
 
-async def handle_bet_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает ввод суммы ставки пользователем"""
+async def handle_bet_and_payment_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает ввод суммы для ставок И платежей"""
 
-    # Проверяем, ждем ли мы ввод ставки
-    if not context.user_data.get('waiting_for_bet'):
-        return
+    logger.info(f"=" * 50)
+    logger.info(f"🔴 ВЫЗВАН ОБРАБОТЧИК ВВОДА!")
+    logger.info(f"🔴 Пользователь: {update.effective_user.id}")
+    logger.info(f"🔴 Сообщение: '{update.message.text if update.message else 'НЕТ'}'")
+    logger.info(f"🔴 user_data: {dict(context.user_data)}")
+    logger.info(f"=" * 50)
+
+    # Проверяем, ждем ли мы ввод ставки ИЛИ платежа
+    waiting_for_bet = context.user_data.get('waiting_for_bet')
+    waiting_for_payment = context.user_data.get('waiting_for_payment')
+
+    logger.info(f"🔍 Результат проверки: bet={waiting_for_bet}, payment={waiting_for_payment}")
+
+    if not waiting_for_bet and not waiting_for_payment:
+        logger.info("🔍 Нет ожидающих состояний, выходим")
+        return  # Ничего не ждем
 
     try:
         user_id = update.effective_user.id
@@ -40,97 +53,252 @@ async def handle_bet_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Проверяем отмену
         if message_text.lower() == '/cancel':
+            # Очищаем ВСЕ состояния
             context.user_data.pop('waiting_for_bet', None)
-            await update.message.reply_text("❌ Создание игры отменено")
-            await show_main_menu_from_message(update, context.application.bot_data.get('bot_instance'))
+            context.user_data.pop('waiting_for_payment', None)
+
+            logger.info(f"🔍 Отмена операции пользователем {user_id}")
+
+            await update.message.reply_text("❌ Операция отменена")
+
+            # Возвращаем в главное меню
+            bot = context.application.bot_data.get('bot_instance')
+            if bot:
+                from app.handlers.commands import show_main_menu_from_message
+                await show_main_menu_from_message(update, bot)
             return
 
         # Пробуем преобразовать в число
         try:
-            bet_amount = float(message_text)
+            amount = float(message_text)
+            logger.info(f"🔍 Преобразовано в число: {amount}")
         except ValueError:
             await update.message.reply_text(
                 "❌ Пожалуйста, введите число\n\n"
-                "Пример: 15 (для ставки $15)\n"
-                "Или: 25.5 (для ставки $25.50)\n\n"
-                "💰 Введите сумму ставки:"
+                "Пример: 15 (для $15)\n"
+                "Или: 25.5 (для $25.50)\n\n"
+                "💵 Введите сумму:"
             )
             return
 
-        # Проверяем минимальную и максимальную сумму
-        if bet_amount < 1:
-            await update.message.reply_text("❌ Минимальная ставка: $1\n\n💰 Введите сумму ставки:")
+        # ========== РАЗДЕЛЕНИЕ ЛОГИКИ ==========
+
+        if waiting_for_payment == 'deposit':
+            logger.info(f"💰 Обработка ДЕПОЗИТА на сумму ${amount:.2f}")
+
+            # ОБРАБОТКА ДЕПОЗИТА
+            if amount < 1:
+                await update.message.reply_text("❌ Минимальная сумма: $1\n\n💵 Введите сумму:")
+                return
+
+            if amount > 1000:
+                await update.message.reply_text("❌ Максимальная сумма: $1000\n\n💵 Введите сумму:")
+                return
+
+            # Очищаем состояние
+            context.user_data.pop('waiting_for_payment', None)
+
+            # Получаем бота
+            bot = context.application.bot_data.get('bot_instance')
+            if not bot:
+                await update.message.reply_text("❌ Ошибка системы")
+                return
+
+            # Пополняем баланс
+            bot.db.update_balance(user_id, amount)
+
+            # Получаем новый баланс
+            user = bot.db.get_user(user_id)
+            new_balance = user[4] if user else amount
+
+            logger.info(f"💰 Баланс пользователя {user_id} пополнен на ${amount:.2f}, новый баланс: ${new_balance:.2f}")
+
+            await update.message.reply_text(
+                f"✅ Баланс пополнен на ${amount:.2f}\n"
+                f"💰 Новый баланс: ${new_balance:.2f}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+                ])
+            )
             return
 
-        if bet_amount > 1000:
-            await update.message.reply_text("❌ Максимальная ставка: $1000\n\n💰 Введите сумму ставки:")
+        elif waiting_for_payment == 'withdraw':
+            logger.info(f"💰 Обработка ВЫВОДА на сумму ${amount:.2f}")
+
+            # ОБРАБОТКА ВЫВОДА
+            if amount < 1:
+                await update.message.reply_text("❌ Минимальная сумма: $1\n\n💵 Введите сумму:")
+                return
+
+            # Очищаем состояние
+            context.user_data.pop('waiting_for_payment', None)
+
+            # Получаем бота
+            bot = context.application.bot_data.get('bot_instance')
+            if not bot:
+                await update.message.reply_text("❌ Ошибка системы")
+                return
+
+            # Проверяем баланс
+            user = bot.db.get_user(user_id)
+            if not user:
+                await update.message.reply_text("❌ Пользователь не найден")
+                return
+
+            current_balance = user[4]
+
+            if current_balance < amount:
+                await update.message.reply_text(
+                    f"❌ Недостаточно средств!\n"
+                    f"Ваш баланс: ${current_balance:.2f}\n"
+                    f"Требуется: ${amount:.2f}",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("💳 Пополнить", callback_data="deposit")],
+                        [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+                    ])
+                )
+                return
+
+            # Списываем средства
+            bot.db.update_balance(user_id, -amount)
+
+            # Создаем запись о выводе
+            try:
+                # Коммитим любые ожидающие транзакции
+                bot.db.get_connection().commit()
+
+                cursor = bot.db.get_connection().cursor()
+
+                # ВАЖНО: добавляем created_at
+                cursor.execute("""
+                    INSERT INTO payments (user_id, amount, payment_type, status, description, created_at)
+                    VALUES (?, ?, 'withdraw', 'pending', ?, datetime('now'))
+                """, (user_id, amount, f"Запрос на вывод ${amount:.2f}"))
+
+                bot.db.get_connection().commit()
+
+                payment_id = cursor.lastrowid
+                cursor.close()
+
+                logger.info(f"💰 Создана заявка на вывод ID: {payment_id}")
+
+            except Exception as e:
+                logger.error(f"Ошибка создания записи о выводе: {e}")
+
+                # Пробуем вернуть средства
+                try:
+                    bot.db.get_connection().commit()
+                    bot.db.update_balance(user_id, amount)
+                    bot.db.get_connection().commit()
+                except Exception as e2:
+                    logger.error(f"Ошибка возврата средств: {e2}")
+
+                await update.message.reply_text(
+                    "❌ Ошибка создания заявки. Средства возвращены на баланс.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+                    ])
+                )
+                return
+
+            commission = amount * 0.08
+            receive_amount = amount - commission
+
+            await update.message.reply_text(
+                f"✅ **Запрос на вывод создан!**\n\n"
+                f"📝 ID заявки: `{payment_id}`\n"
+                f"💵 Запрошено: ${amount:.2f}\n"
+                f"📊 Комиссия (8%): ${commission:.2f}\n"
+                f"💰 К получению: ${receive_amount:.2f}\n\n"
+                f"⏳ Обычно обработка занимает 1-24 часа.\n"
+                f"👨‍💼 Для ускорения обратитесь к @admin",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+                ]),
+                parse_mode='Markdown'
+            )
+
+            logger.info(f"💸 Вывод: пользователь {user_id} запросил вывод ${amount:.2f}, ID заявки: {payment_id}")
             return
 
-        # Очищаем состояние
-        context.user_data.pop('waiting_for_bet', None)
+        elif waiting_for_bet:
+            logger.info(f"🎲 Обработка СТАВКИ на сумму ${amount:.2f}")
 
-        # Создаем игру
-        bot = context.application.bot_data.get('bot_instance')
-        if not bot or not hasattr(bot, 'game_manager'):
-            await update.message.reply_text("❌ Ошибка: система игр не инициализирована")
-            return
+            # ОРИГИНАЛЬНАЯ ЛОГИКА ДЛЯ СТАВОК
+            # Проверяем минимальную и максимальную сумму
+            if amount < 1:
+                await update.message.reply_text("❌ Минимальная ставка: $1\n\n💰 Введите сумму ставки:")
+                return
 
-        game_manager = bot.game_manager
-        user_name = update.effective_user.username or update.effective_user.first_name
+            if amount > 1000:
+                await update.message.reply_text("❌ Максимальная ставка: $1000\n\n💰 Введите сумму ставки:")
+                return
 
-        # Создаем игру
-        game, error = game_manager.create_game(
-            creator_id=user_id,
-            creator_name=user_name,
-            bet_amount=bet_amount
-        )
+            # Очищаем состояние
+            context.user_data.pop('waiting_for_bet', None)
 
-        if error:
-            await update.message.reply_text(f"❌ {error}")
-            return
+            # Создаем игру
+            bot = context.application.bot_data.get('bot_instance')
+            if not bot or not hasattr(bot, 'game_manager'):
+                await update.message.reply_text("❌ Ошибка: система игр не инициализирована")
+                return
 
-        # Инициализируем хранилище message_id если нужно
-        if not hasattr(game_manager, 'game_messages'):
-            game_manager.game_messages = {}
+            game_manager = bot.game_manager
+            user_name = update.effective_user.username or update.effective_user.first_name
 
-        if game.id not in game_manager.game_messages:
-            game_manager.game_messages[game.id] = []
+            # Создаем игру
+            game, error = game_manager.create_game(
+                creator_id=user_id,
+                creator_name=user_name,
+                bet_amount=amount
+            )
 
-        # Клавиатура для создателя
-        keyboard = [
-            [InlineKeyboardButton("🎲 Бросить кости", callback_data=f"roll_{game.id}")],
-            [InlineKeyboardButton("❌ Отменить игру", callback_data=f"cancel_active_game_{game.id}")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            if error:
+                await update.message.reply_text(f"❌ {error}")
+                return
 
-        # Сообщение создателю
-        game_message_text = (
-            f"🎲 Игра создана!\n"
-            f"💰 Ставка: ${game.bet_amount:.2f}\n\n"
-            f"🆔 Код игры: `{game.game_code}`\n\n"
-            "📤 **Отправьте следующее сообщение другу!**"
-        )
+            # Инициализируем хранилище message_id если нужно
+            if not hasattr(game_manager, 'game_messages'):
+                game_manager.game_messages = {}
 
-        game_message = await update.message.reply_text(
-            game_message_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+            if game.id not in game_manager.game_messages:
+                game_manager.game_messages[game.id] = []
 
-        # Сохраняем ID этого сообщения
-        game_msg_data = {
-            "chat_id": update.message.chat_id,
-            "message_id": game_message.message_id
-        }
-        logger.info(f"🔍 СООБЩЕНИЕ ОБ ИГРЕ: {game_msg_data}")
-        if game_msg_data not in game_manager.game_messages[game.id]:
-            game_manager.game_messages[game.id].append(game_msg_data)
+            # Клавиатура для создателя
+            keyboard = [
+                [InlineKeyboardButton("🎲 Бросить кости", callback_data=f"roll_{game.id}")],
+                [InlineKeyboardButton("❌ Отменить игру", callback_data=f"cancel_active_game_{game.id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Отправляем приглашение для пересылки
-        await send_game_invite_from_message(update, game, context)
+            # Сообщение создателю
+            game_message_text = (
+                f"🎲 Игра создана!\n"
+                f"💰 Ставка: ${game.bet_amount:.2f}\n\n"
+                f"🆔 Код игры: `{game.game_code}`\n\n"
+                "📤 **Отправьте следующее сообщение другу!**"
+            )
+
+            game_message = await update.message.reply_text(
+                game_message_text,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+
+            # Сохраняем ID этого сообщения
+            game_msg_data = {
+                "chat_id": update.message.chat_id,
+                "message_id": game_message.message_id
+            }
+            logger.info(f"🔍 СООБЩЕНИЕ ОБ ИГРЕ: {game_msg_data}")
+            if game_msg_data not in game_manager.game_messages[game.id]:
+                game_manager.game_messages[game.id].append(game_msg_data)
+
+            # Отправляем приглашение для пересылки
+            await send_game_invite_from_message(update, game, context)
 
     except Exception as e:
-        logger.error(f"Ошибка обработки ввода ставки: {e}")
+        logger.error(f"❌ Ошибка обработки ввода: {e}")
         await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
 
@@ -495,109 +663,29 @@ async def process_game_result(game, context, bot=None):  # ← ДОБАВЛЯЕ�
         logger.error(f"❌ Ошибка обработки результата: {e}")
 
 
-async def handle_bet_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает ввод суммы ставки пользователем"""
-
-    # Проверяем, ждем ли мы ввод ставки
-    if not context.user_data.get('waiting_for_bet'):
-        return
-
-    try:
-        user_id = update.effective_user.id
-        message_text = update.message.text.strip()
-
-        # Проверяем отмену
-        if message_text.lower() == '/cancel':
-            context.user_data.pop('waiting_for_bet', None)
-            await update.message.reply_text("❌ Создание игры отменено")
-            return
-
-        # Пробуем преобразовать в число
-        try:
-            bet_amount = float(message_text)
-        except ValueError:
-            await update.message.reply_text(
-                "❌ Пожалуйста, введите число\n\n"
-                "Пример: 15 (для ставки $15)\n"
-                "Или: 25.5 (для ставки $25.50)"
-            )
-            return
-
-        # Проверяем минимальную и максимальную сумму
-        if bet_amount < 1:
-            await update.message.reply_text("❌ Минимальная ставка: $1")
-            return
-
-        if bet_amount > 1000:
-            await update.message.reply_text("❌ Максимальная ставка: $1000")
-            return
-
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /cancel"""
+    # Проверяем, находимся ли мы в состоянии ожидания ставки
+    if context.user_data.get('waiting_for_bet'):
         # Очищаем состояние
         context.user_data.pop('waiting_for_bet', None)
+        context.user_data.pop('action', None)
 
-        # Создаем игру
-        bot = context.application.bot_data.get('bot_instance')
-        if not bot or not hasattr(bot, 'game_manager'):
-            await update.message.reply_text("❌ Ошибка: система игр не инициализирована")
-            return
+        await update.message.reply_text("✅ Создание игры отменено")
 
-        game_manager = bot.game_manager
-        user_name = update.effective_user.username or update.effective_user.first_name
-
-        # Создаем игру
-        game, error = game_manager.create_game(
-            creator_id=user_id,
-            creator_name=user_name,
-            bet_amount=bet_amount
-        )
-
-        if error:
-            await update.message.reply_text(f"❌ {error}")
-            return
-
-        # Инициализируем хранилище message_id если нужно
-        if not hasattr(game_manager, 'game_messages'):
-            game_manager.game_messages = {}
-
-        if game.id not in game_manager.game_messages:
-            game_manager.game_messages[game.id] = []
-
-        # Клавиатура для создателя
-        keyboard = [
-            [InlineKeyboardButton("🎲 Бросить кости", callback_data=f"roll_{game.id}")],
-            [InlineKeyboardButton("❌ Отменить игру", callback_data=f"cancel_active_game_{game.id}")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        # Сообщение создателю
-        game_message_text = (
-            f"🎲 Игра создана!\n"
-            f"💰 Ставка: ${game.bet_amount:.2f}\n\n"
-            f"🆔 Код игры: `{game.game_code}`\n\n"
-            "📤 **Отправьте следующее сообщение другу!**"
-        )
-
-        game_message = await update.message.reply_text(
-            game_message_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-        # Сохраняем ID этого сообщения
-        game_msg_data = {
-            "chat_id": update.message.chat_id,
-            "message_id": game_message.message_id
-        }
-        logger.info(f"🔍 СООБЩЕНИЕ ОБ ИГРЕ: {game_msg_data}")
-        if game_msg_data not in game_manager.game_messages[game.id]:
-            game_manager.game_messages[game.id].append(game_msg_data)
-
-
-        await send_game_invite_from_message(update, game, context)
-
-    except Exception as e:
-        logger.error(f"Ошибка обработки ввода ставки: {e}")
-        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
+        # Пытаемся вернуть в главное меню
+        try:
+            from app.handlers.commands import show_main_menu_from_message
+            bot = context.application.bot_data.get('bot_instance')
+            if bot:
+                await show_main_menu_from_message(update, bot)
+        except Exception as e:
+            logger.error(f"Ошибка возврата в меню: {e}")
+            # Если не получилось - просто отправляем текст
+            await update.message.reply_text("Используйте /start для возврата в меню")
+    else:
+        # Не в состоянии ожидания
+        await update.message.reply_text("ℹ️ Нечего отменять")
 
 
 async def send_game_invite_from_message(update: Update, game, context):
@@ -674,14 +762,15 @@ def register_game_handlers(application, bot):
     application.add_handler(CallbackQueryHandler(handle_dice_roll, pattern=r"^roll_"))
     application.add_handler(CallbackQueryHandler(cancel_active_game, pattern=r"^cancel_active_game_"))
 
-    # Текстовый обработчик для ввода ставки
+    # Command handlers - ВАЖНО: регистрируем ДО MessageHandler!
+    application.add_handler(CommandHandler("cancel", cancel_command))
+    application.add_handler(CommandHandler("join", join_game_command))
+
+    # Текстовый обработчик для ввода ставки И платежей
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
-        handle_bet_input
+        handle_bet_and_payment_input  # Изменили название функции!
     ))
-
-    # Command handlers
-    application.add_handler(CommandHandler("join", join_game_command))
 
     logger.info("✅ Обработчики игр 1 на 1 зарегистрированы")
 

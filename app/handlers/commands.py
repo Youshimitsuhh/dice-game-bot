@@ -7,6 +7,55 @@ from app.handlers.lobby_handlers import get_lobby_keyboard
 logger = logging.getLogger(__name__)
 
 
+def create_main_menu_keyboard():
+    """Создает клавиатуру главного меню (единая для всех функций)"""
+    keyboard = [
+        [
+            InlineKeyboardButton("🎯 Создать игру", callback_data="find_game"),
+            InlineKeyboardButton("👥 Создать лобби", callback_data="create_lobby_menu")
+        ],
+        [
+            InlineKeyboardButton("📊 Моя статистика", callback_data="stats"),
+            InlineKeyboardButton("❓ Помощь", callback_data="help")
+        ],
+        [
+            InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit"),
+            InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Обработчик /help"""
+    chat = update.effective_chat
+
+    if chat.type in ["group", "supergroup"]:
+        help_text = (
+            "🎯 **Команды для игры в группах:**\n\n"
+            "/duel <ставка> - создать дуэль\n"
+            "Пример: /duel 10\n\n"
+            "/join <код> - присоединиться к игре\n\n"
+            "📱 *Для пополнения баланса перейдите в личный чат с ботом*"
+        )
+    else:
+        help_text = (
+            "❓ **Помощь по игре**\n\n"
+            "🎯 Как играть:\n"
+            "1. Нажмите 'Создать игру' в меню\n"
+            "2. Выберите сумму ставки\n"
+            "3. Другой игрок присоединяется по ID\n"
+            "4. Бросайте кости\n"
+            "5. Победитель забирает банк\n\n"
+            "💸 Команды:\n"
+            "/menu - открыть меню\n"
+            "/join [ID] - присоединиться к игре\n"
+            "/duel [ставка] - создать дуэль (в группах)"
+        )
+
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+
 def register_command_handlers(application, bot):
     """Регистрируем обработчики команд"""
     logger.info("📝 Регистрируем обработчики команд")
@@ -144,12 +193,13 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
         "Выберите действие:"
     )
 
+    # ТА ЖЕ КЛАВИАТУРА
     keyboard = [
         [InlineKeyboardButton("🎯 Создать игру", callback_data="find_game")],
         [InlineKeyboardButton("👥 Создать лобби", callback_data="create_lobby_menu")],
         [InlineKeyboardButton("📊 Моя статистика", callback_data="stats")],
         [InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit"),
-         InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],  # ← ШИРОКОЕ МЕНЮ
+         InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],
         [InlineKeyboardButton("❓ Помощь", callback_data="help")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -172,17 +222,7 @@ async def show_main_menu_from_message(update: Update, bot):
         "Выберите действие:"
     )
 
-    keyboard = [
-        [InlineKeyboardButton("🎯 Создать игру", callback_data="find_game")],
-        [InlineKeyboardButton("👥 Создать лобби", callback_data="create_lobby_menu")],
-        [InlineKeyboardButton("📊 Моя статистика", callback_data="stats")],
-        [InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit")],
-        [InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],
-        [InlineKeyboardButton("❓ Помощь", callback_data="help")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(menu_text, reply_markup=reply_markup)
+    await update.message.reply_text(menu_text, reply_markup=create_main_menu_keyboard())
 
 
 async def show_main_menu_from_callback(query, bot):
@@ -197,12 +237,13 @@ async def show_main_menu_from_callback(query, bot):
         "Выберите действие:"
     )
 
+    # ТА ЖЕ КЛАВИАТУРА
     keyboard = [
         [InlineKeyboardButton("🎯 Создать игру", callback_data="find_game")],
         [InlineKeyboardButton("👥 Создать лобби", callback_data="create_lobby_menu")],
         [InlineKeyboardButton("📊 Моя статистика", callback_data="stats")],
-        [InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit")],
-        [InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],
+        [InlineKeyboardButton("💳 Пополнить баланс", callback_data="deposit"),
+         InlineKeyboardButton("💸 Вывести средства", callback_data="withdraw")],
         [InlineKeyboardButton("❓ Помощь", callback_data="help")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -210,38 +251,8 @@ async def show_main_menu_from_callback(query, bot):
     await query.edit_message_text(menu_text, reply_markup=reply_markup)
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
-    """Обработчик /help"""
-    chat = update.effective_chat
-
-    if chat.type in ["group", "supergroup"]:
-        help_text = (
-            "🎯 **Команды для игры в группах:**\n\n"
-            "/duel <ставка> - создать дуэль\n"
-            "Пример: /duel 10\n\n"
-            "/join <код> - присоединиться к игре\n\n"
-            "📱 *Для пополнения баланса перейдите в личный чат с ботом*"
-        )
-    else:
-        help_text = (
-            "❓ **Помощь по игре**\n\n"
-            "🎯 Как играть:\n"
-            "1. Нажмите 'Создать игру' в меню\n"
-            "2. Выберите сумму ставки\n"
-            "3. Другой игрок присоединяется по ID\n"
-            "4. Бросайте кости\n"
-            "5. Победитель забирает банк\n\n"
-            "💸 Команды:\n"
-            "/menu - открыть меню\n"
-            "/join [ID] - присоединиться к игре\n"
-            "/duel [ставка] - создать дуэль (в группах)"
-        )
-
-    await update.message.reply_text(help_text, parse_mode='Markdown')
-
-
 async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
-    """Обработчик /deposit"""
+    """Обработчик /deposit <сумма>"""
     chat = update.effective_chat
 
     if chat.type in ["group", "supergroup"]:
@@ -251,12 +262,130 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bo
         )
         return
 
-    await update.message.reply_text(
-        "💳 Для пополнения баланса используйте меню:\n\n"
-        "1. Нажмите /menu\n"
-        "2. Выберите 'Пополнить баланс'\n"
-        "3. Выберите сумму"
-    )
+    if not context.args:
+        await update.message.reply_text(
+            "💳 **Использование:** `/deposit <сумма>`\n\n"
+            "Примеры:\n"
+            "• `/deposit 15.5` - пополнить на $15.50\n"
+            "• `/deposit 100` - пополнить на $100\n\n"
+            "Минимум: $1\n"
+            "Максимум: $1000",
+            parse_mode='Markdown'
+        )
+        return
+
+    try:
+        amount = float(context.args[0])
+
+        if amount < 1:
+            await update.message.reply_text("❌ Минимальная сумма: $1")
+            return
+
+        if amount > 1000:
+            await update.message.reply_text("❌ Максимальная сумма: $1000")
+            return
+
+        # Пополняем баланс
+        user_id = update.effective_user.id
+        bot.db.update_balance(user_id, amount)
+
+        await update.message.reply_text(
+            f"✅ Баланс пополнен на ${amount:.2f}\n"
+            f"💰 Новый баланс: ${bot.db.get_user(user_id)[4]:.2f}"
+        )
+
+    except ValueError:
+        await update.message.reply_text("❌ Пожалуйста, введите число\n\nПример: /deposit 15.5")
+
+
+async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):
+    """Обработчик /withdraw <сумма>"""
+    chat = update.effective_chat
+
+    if chat.type in ["group", "supergroup"]:
+        await update.message.reply_text(
+            "❌ Вывод доступен только в личном чате.\n"
+            "Перейдите в диалог с ботом."
+        )
+        return
+
+    if not context.args:
+        user_id = update.effective_user.id
+        user = bot.db.get_user(user_id)
+
+        if user:
+            balance = user[4]
+            await update.message.reply_text(
+                f"💸 **Использование:** `/withdraw <сумма>`\n\n"
+                f"💰 Доступно: ${balance:.2f}\n\n"
+                "Примеры:\n"
+                "• `/withdraw 25.75` - вывести $25.75\n"
+                "• `/withdraw 50` - вывести $50\n\n"
+                "Минимум: $1",
+                parse_mode='Markdown'
+            )
+        return
+
+    try:
+        amount = float(context.args[0])
+
+        if amount < 1:
+            await update.message.reply_text("❌ Минимальная сумма: $1")
+            return
+
+        user_id = update.effective_user.id
+        user = bot.db.get_user(user_id)
+
+        if not user:
+            await update.message.reply_text("❌ Пользователь не найден")
+            return
+
+        current_balance = user[4]
+
+        if current_balance < amount:
+            await update.message.reply_text(
+                f"❌ Недостаточно средств!\n"
+                f"Ваш баланс: ${current_balance:.2f}\n"
+                f"Требуется: ${amount:.2f}"
+            )
+            return
+
+        # Списываем средства
+        bot.db.update_balance(user_id, -amount)
+
+        # Создаем запись о выводе
+        try:
+            cursor = bot.db.get_connection().cursor()
+            cursor.execute("""
+                INSERT INTO payments (user_id, amount, payment_type, status, description)
+                VALUES (?, ?, 'withdraw', 'pending', ?)
+            """, (user_id, amount, f"Запрос на вывод ${amount:.2f}"))
+            bot.db.get_connection().commit()
+
+            payment_id = cursor.lastrowid
+
+        except Exception as e:
+            logger.error(f"Ошибка создания записи о выводе: {e}")
+            bot.db.update_balance(user_id, amount)  # Возвращаем средства
+            await update.message.reply_text("❌ Ошибка создания заявки")
+            return
+
+        commission = amount * 0.08
+        receive_amount = amount - commission
+
+        await update.message.reply_text(
+            f"✅ **Запрос на вывод создан!**\n\n"
+            f"📝 ID заявки: `{payment_id}`\n"
+            f"💵 Запрошено: ${amount:.2f}\n"
+            f"📊 Комиссия (8%): ${commission:.2f}\n"
+            f"💰 К получению: ${receive_amount:.2f}\n\n"
+            f"⏳ Обычно обработка занимает 1-24 часа.\n"
+            f"👨‍💼 Для ускорения обратитесь к @admin",
+            parse_mode='Markdown'
+        )
+
+    except ValueError:
+        await update.message.reply_text("❌ Пожалуйста, введите число\n\nПример: /withdraw 25.5")
 
 
 # Остальные команды пока заглушки

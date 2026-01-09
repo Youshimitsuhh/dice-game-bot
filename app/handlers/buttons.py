@@ -51,8 +51,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
         return
 
     # ========== ВАЖНО: Пропускаем кнопки ПЛАТЕЖЕЙ ==========
-    payment_prefixes = ("deposit", "withdraw", "check_deposit",
-                        "cancel_withdraw", "payment_history", "payment_cancel")
+    # payment_prefixes = ("deposit", "withdraw", "check_deposit",
+    #                     "cancel_withdraw", "payment_history", "payment_cancel")
 
     admin_prefixes = ("admin_", "broadcast_")
 
@@ -61,9 +61,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
         await handle_admin_callback(update, context, bot)
         return
 
-    if any(data.startswith(prefix) for prefix in payment_prefixes):
-        logger.info(f"🔘 Кнопка платежа '{data}' передана в payment_handlers")
-        return
+    # if any(data.startswith(prefix) for prefix in payment_prefixes):
+    #     logger.info(f"🔘 Кнопка платежа '{data}' передана в payment_handlers")
+    #     return
 
     # ========== ОБРАБОТКА ОСТАЛЬНЫХ КНОПОК ==========
 
@@ -189,11 +189,55 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
     elif data == "help":
         await show_help(query, bot)
 
-    # elif data == "deposit":
-    #     await show_deposit(query, bot)
-    #
-    # elif data == "withdraw":
-    #     await show_withdraw(query, bot)
+
+    elif data == "deposit":
+
+        await show_deposit(query, bot)
+
+    elif data == "withdraw":
+
+        await show_withdraw(query, bot)
+
+    elif data == "deposit":
+        await show_deposit(query, bot)
+
+    elif data == "withdraw":
+        await show_withdraw(query, bot)
+
+    elif data == "start_deposit_input":
+        # Устанавливаем состояние ожидания депозита
+        context.user_data['waiting_for_payment'] = 'deposit'
+
+        await query.edit_message_text(
+            "💳 **Пополнение баланса**\n\n"
+            "💵 Введите сумму для пополнения (от $1 до $1000):\n\n"
+            "Примеры:\n"
+            "• 15.5 (для $15.50)\n"
+            "• 100 (для $100)\n\n"
+            "❌ Для отмены нажмите /cancel"
+        )
+
+    elif data == "start_withdraw_input":
+        # Устанавливаем состояние ожидания вывода
+        context.user_data['waiting_for_payment'] = 'withdraw'
+
+        await query.edit_message_text(
+            "💸 **Вывод средств**\n\n"
+            "💵 Введите сумму для вывода (от $1):\n\n"
+            "Примеры:\n"
+            "• 25.75 (для $25.75)\n"
+            "• 50 (для $50)\n\n"
+            "❌ Для отмены нажмите /cancel"
+        )
+
+    # Игры 1 на 1
+    elif data.startswith("bet_"):
+        bet_amount = float(data.split("_")[1])
+        await create_game(query, bet_amount, bot)
+
+    # elif data.startswith("withdraw_"):
+    #     amount = float(data.split("_")[1])
+    #     await process_withdraw_in_buttons(query, amount, bot)
 
     # Игры 1 на 1
     elif data.startswith("bet_"):
@@ -219,24 +263,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
         game_code = data.split("_")[1]
         await copy_command(query, game_code, bot)
 
-    # # Платежи
     # elif data.startswith("deposit_"):
     #     amount = float(data.split("_")[1])
     #     await process_deposit(query, amount, bot)
-    #
+
     # elif data == "custom_deposit":
     #     context.user_data['waiting_for_deposit'] = True
     #     await ask_custom_deposit(query, bot)
-    #
-    # elif data.startswith("withdraw_"):
-    #     amount = float(data.split("_")[1])
-    #     await process_withdraw(query, amount, bot)
-    #
+
     # elif data == "custom_withdraw":
     #     context.user_data['waiting_for_withdraw'] = True
     #     await ask_custom_withdraw(query, bot)
 
-    # Дуэли (должны были быть обработаны выше)
+    elif data == "payment_history":
+        await show_payment_history(query, bot)
+
     elif data.startswith("duel_"):
         # Если мы здесь - значит это неизвестный тип дуэли
         logger.warning(f"⚠️ Неизвестная кнопка дуэли: {data}")
@@ -375,6 +416,23 @@ async def show_admin_main_menu(query):
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+
+
+async def show_main_menu(query, bot):
+    """Показывает главное меню"""
+    user_id = query.from_user.id
+    stats = bot.db.get_user_stats(user_id)
+    balance = stats[1] if stats else 0
+
+    menu_text = (
+        f"🎲 Главное меню\n\n"
+        f"💰 Баланс: ${balance:.0f}\n"
+        "Выберите действие:"
+    )
+
+    # Импортируйте функцию из commands.py или скопируйте её
+    from app.handlers.commands import create_main_menu_keyboard
+    await query.edit_message_text(menu_text, reply_markup=create_main_menu_keyboard())
 
 
 async def show_admin_stats(query, bot):
@@ -840,67 +898,218 @@ async def show_help(query, bot):
     await query.edit_message_text(help_text, reply_markup=reply_markup)
 
 
-# async def show_deposit(query, bot):
-#     """Показывает варианты депозита"""
-#     keyboard = [
-#         [InlineKeyboardButton("$10", callback_data="deposit_10")],
-#         [InlineKeyboardButton("$25", callback_data="deposit_25")],
-#         [InlineKeyboardButton("$50", callback_data="deposit_50")],
-#         [InlineKeyboardButton("$100", callback_data="deposit_100")],
-#         [InlineKeyboardButton("💵 Произвольная сумма", callback_data="custom_deposit")],
-#         [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
-#     ]
-#     reply_markup = InlineKeyboardMarkup(keyboard)
-#
-#     await query.edit_message_text("💳 Выберите сумму для пополнения:", reply_markup=reply_markup)
-#
-#
-# async def show_withdraw(query, bot):
-#     """Показывает варианты вывода"""
-#     user_id = query.from_user.id
-#     user = bot.db.get_user(user_id)
-#
-#     if user:
-#         balance = user[4]
-#         keyboard = [
-#             [InlineKeyboardButton("$10", callback_data="withdraw_10")],
-#             [InlineKeyboardButton("$25", callback_data="withdraw_25")],
-#             [InlineKeyboardButton("$50", callback_data="withdraw_50")],
-#             [InlineKeyboardButton("$100", callback_data="withdraw_100")],
-#             [InlineKeyboardButton("💵 Произвольная сумма", callback_data="custom_withdraw")],
-#             [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
-#         ]
-#         reply_markup = InlineKeyboardMarkup(keyboard)
-#
-#         await query.edit_message_text(
-#             f"💸 Вывод средств\n\n"
-#             f"💰 Доступно: ${balance:.0f}\n"
-#             "Выберите сумму для вывода:",
-#             reply_markup=reply_markup
-#         )
-#
-#
-# async def process_deposit(query, amount, bot):
-#     """Обрабатывает депозит - заглушка"""
-#     await query.edit_message_text(
-#         f"💳 Депозит на ${amount:.0f}\n\n"
-#         "⚠️ Функция в разработке...\n"
-#         "Скоро будет доступно!",
-#         reply_markup=InlineKeyboardMarkup([
-#             [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
-#         ])
-#     )
-#
-#
-# async def ask_custom_deposit(query, bot):
-#     """Запрашивает произвольную сумму депозита"""
-#     await query.edit_message_text(
-#         "💵 Введите сумму для пополнения (минимум $1):\n\n"
-#         "Пример: 15.5 или 75",
-#         reply_markup=InlineKeyboardMarkup([
-#             [InlineKeyboardButton("🔙 Назад", callback_data="deposit")]
-#         ])
-#     )
+async def show_deposit(query, bot):
+    """Показывает запрос на ввод суммы депозита"""
+    user_id = query.from_user.id
+    user = bot.db.get_user(user_id)
+
+    if user:
+        balance = user[4]
+
+        # ВАЖНО: Нужно установить состояние ожидания депозита
+        # Но у нас нет доступа к context здесь!
+
+        # Вместо этого, покажем сообщение с инструкцией
+        # и установим состояние через callback data
+        keyboard = [
+            [InlineKeyboardButton("💵 Ввести сумму", callback_data="start_deposit_input")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"💳 Пополнение баланса\n\n"
+            f"💰 Текущий баланс: ${balance:.2f}\n\n"
+            "Нажмите кнопку ниже, чтобы ввести сумму для пополнения:",
+            reply_markup=reply_markup
+        )
+
+
+async def show_withdraw(query, bot):
+    """Показывает запрос на ввод суммы вывода"""
+    user_id = query.from_user.id
+    user = bot.db.get_user(user_id)
+
+    if user:
+        balance = user[4]
+
+        keyboard = [
+            [InlineKeyboardButton("💵 Ввести сумму", callback_data="start_withdraw_input")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"💸 Вывод средств\n\n"
+            f"💰 Доступно для вывода: ${balance:.2f}\n\n"
+            "Нажмите кнопку ниже, чтобы ввести сумму для вывода:",
+            reply_markup=reply_markup
+        )
+
+
+async def process_deposit(query, amount, bot):
+    """Обрабатывает депозит - временная заглушка"""
+    await query.edit_message_text(
+        f"💳 Депозит на ${amount:.2f}\n\n"
+        "📢 **Внимание!** Платежная система находится в разработке.\n\n"
+        "Пока что вы можете:\n"
+        "1. Обратиться к администратору @admin\n"
+        "2. Использовать тестовый режим\n"
+        "3. Дождаться запуска полноценной платежной системы\n\n"
+        "Для тестирования баланс был пополнен на указанную сумму.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💰 Проверить баланс", callback_data="stats")],
+            [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+        ])
+    )
+
+    # Временно добавляем средства на баланс для тестирования
+    user_id = query.from_user.id
+    bot.db.update_balance(user_id, amount)
+
+
+async def ask_custom_deposit(query, bot):
+    """Запрашивает произвольную сумму депозита"""
+    await query.edit_message_text(
+        "💵 Введите сумму для пополнения (минимум $1):\n\n"
+        "Пример: 15.5 или 75\n\n"
+        "❌ Для отмены нажмите /cancel",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 Назад", callback_data="deposit")]
+        ])
+    )
+
+
+async def process_withdraw(query, amount, bot):
+    """Обрабатывает вывод - временная заглушка"""
+    user_id = query.from_user.id
+    user = bot.db.get_user(user_id)
+
+    if not user:
+        await query.edit_message_text("❌ Пользователь не найден")
+        return
+
+    current_balance = user[4]
+
+    if current_balance < amount:
+        await query.edit_message_text(
+            f"❌ Недостаточно средств!\n"
+            f"Ваш баланс: ${current_balance:.2f}\n"
+            f"Требуется: ${amount:.2f}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 Пополнить", callback_data="deposit")],
+                [InlineKeyboardButton("🔙 Назад", callback_data="withdraw")]
+            ])
+        )
+        return
+
+    # Списываем средства
+    bot.db.update_balance(user_id, -amount)
+
+    # Создаем запись о выводе в базе
+    try:
+        cursor = bot.db.get_connection().cursor()
+        cursor.execute("""
+            INSERT INTO payments (user_id, amount, payment_type, status, description)
+            VALUES (?, ?, 'withdraw', 'pending', ?)
+        """, (user_id, amount, f"Запрос на вывод ${amount:.2f}"))
+        bot.db.get_connection().commit()
+    except Exception as e:
+        logger.error(f"Ошибка создания записи о выводе: {e}")
+
+    await query.edit_message_text(
+        f"💸 Заявка на вывод ${amount:.2f} создана!\n\n"
+        "📋 **Информация:**\n"
+        "• Средства заморожены на вашем балансе\n"
+        "• Заявка отправлена администратору\n"
+        "• Выплата производится вручную\n"
+        "• Обычное время обработки: 24 часа\n\n"
+        "👨‍💼 Для ускорения обратитесь к @admin",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Мои заявки", callback_data="payment_history")],
+            [InlineKeyboardButton("💰 Проверить баланс", callback_data="stats")],
+            [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+        ])
+    )
+
+
+async def ask_custom_withdraw(query, bot):
+    """Запрашивает произвольную сумму вывода"""
+    user_id = query.from_user.id
+    user = bot.db.get_user(user_id)
+
+    if user:
+        balance = user[4]
+        await query.edit_message_text(
+            f"💵 Введите сумму для вывода (минимум $1):\n\n"
+            f"💰 Доступно: ${balance:.2f}\n\n"
+            "Пример: 15.5 или 75\n\n"
+            "❌ Для отмены нажмите /cancel",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Назад", callback_data="withdraw")]
+            ])
+        )
+
+
+async def process_withdraw_in_buttons(query, amount: float, bot):
+    """Обработка вывода из кнопок в buttons.py"""
+    user_id = query.from_user.id
+    user = bot.db.get_user(user_id)
+
+    if not user:
+        await query.answer("❌ Пользователь не найден", show_alert=True)
+        return
+
+    current_balance = user[4]
+
+    if current_balance < amount:
+        await query.answer(
+            f"❌ Недостаточно средств!\n"
+            f"Ваш баланс: ${current_balance:.2f}\n"
+            f"Требуется: ${amount:.2f}",
+            show_alert=True
+        )
+        return
+
+    # Списываем средства
+    bot.db.update_balance(user_id, -amount)
+
+    # Создаем запись о выводе в базе
+    try:
+        cursor = bot.db.get_connection().cursor()
+        cursor.execute("""
+            INSERT INTO payments (user_id, amount, payment_type, status, description)
+            VALUES (?, ?, 'withdraw', 'pending', ?)
+        """, (user_id, amount, f"Запрос на вывод ${amount:.2f}"))
+        bot.db.get_connection().commit()
+
+        payment_id = cursor.lastrowid
+
+    except Exception as e:
+        logger.error(f"Ошибка создания записи о выводе: {e}")
+        await query.answer("❌ Ошибка создания заявки", show_alert=True)
+        return
+
+    commission = amount * 0.08
+    receive_amount = amount - commission
+
+    keyboard = [
+        [InlineKeyboardButton("📋 Главное меню", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        f"✅ **Запрос на вывод создан!**\n\n"
+        f"📝 ID заявки: `{payment_id}`\n"
+        f"💵 Запрошено: ${amount:.2f}\n"
+        f"📊 Комиссия (8%): ${commission:.2f}\n"
+        f"💰 К получению: ${receive_amount:.2f}\n\n"
+        f"⏳ Обычно обработка занимает 1-24 часа.\n"
+        f"Вы можете отменить заявку в течение 10 минут.\n\n"
+        f"👨‍💼 Для ускорения обратитесь к @admin",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
 
 async def cancel_active_game(query, game_id, bot):
@@ -975,6 +1184,73 @@ async def copy_command(query, game_code, bot):
             [InlineKeyboardButton("🔙 Назад", callback_data="find_game")]
         ])
     )
+
+
+async def show_payment_history(query, bot):
+    """Показывает историю платежей пользователя"""
+    user_id = query.from_user.id
+
+    try:
+        cursor = bot.db.get_connection().cursor()
+        cursor.execute("""
+            SELECT payment_id, amount, payment_type, status, created_at, description
+            FROM payments 
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 10
+        """, (user_id,))
+
+        payments = cursor.fetchall()
+
+        if not payments:
+            history_text = "📭 У вас пока нет платежей"
+        else:
+            history_text = "📋 История ваших платежей:\n\n"
+            for payment in payments:
+                payment_id, amount, p_type, status, created_at, description = payment
+
+                # Иконки для типов платежей
+                if p_type == "deposit":
+                    icon = "💳"
+                elif p_type == "withdraw":
+                    icon = "💸"
+                else:
+                    icon = "💰"
+
+                # Статусы
+                if status == "completed":
+                    status_icon = "✅"
+                elif status == "pending":
+                    status_icon = "⏳"
+                elif status == "failed":
+                    status_icon = "❌"
+                else:
+                    status_icon = "❓"
+
+                # Форматируем дату
+                date_str = created_at.split()[0] if created_at else "неизвестно"
+
+                history_text += f"{icon} ${amount:.2f} | {status_icon} {status}\n"
+                history_text += f"📅 {date_str}"
+                if description:
+                    history_text += f" | {description[:30]}"
+                history_text += "\n────────────────\n"
+
+        keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(history_text, reply_markup=reply_markup)
+
+    except Exception as e:
+        logger.error(f"Ошибка показа истории платежей: {e}")
+        await query.edit_message_text(
+            f"❌ Ошибка загрузки истории платежей\n\n"
+            f"Техническая информация: {str(e)[:100]}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+            ])
+        )
+
 
 async def cancel_duel_in_chat(query, chat_id, bot):
     """Отмена дуэли в групповом чате - заглушка"""
