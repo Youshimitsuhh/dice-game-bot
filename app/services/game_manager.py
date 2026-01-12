@@ -354,4 +354,40 @@ class GameManager:
 
         return None
 
+    def cleanup_old_games(self, timeout_minutes=5):
+        """Удаляет игры старше указанного времени"""
+        import time
+        import logging
+        logger = logging.getLogger(__name__)
+
+        current_time = time.time()
+        timeout_seconds = timeout_minutes * 60
+
+        games_to_remove = []
+
+        for game_id, game in list(self.active_games.items()):
+            if hasattr(game, 'created_at'):
+                game_age = current_time - game.created_at
+
+                # Удаляем игры которые ждут второго игрока слишком долго
+                if game_age > timeout_seconds and game.status == 'waiting':
+                    games_to_remove.append(game_id)
+
+        for game_id in games_to_remove:
+            game = self.active_games[game_id]
+
+            # Возвращаем ставку создателю
+            if hasattr(game, 'player1_id') and hasattr(game, 'bet_amount'):
+                try:
+                    self.db.update_balance(game.player1_id, game.bet_amount)
+                    logger.info(f"💰 Возвращена ставка ${game.bet_amount:.0f} игроку {game.player1_id}")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка возврата ставки: {e}")
+
+            # Удаляем игру
+            del self.active_games[game_id]
+            logger.info(f"🗑️ Удалена старая игра {game_id}")
+
+        return len(games_to_remove)
+
 

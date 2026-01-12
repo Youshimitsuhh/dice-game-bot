@@ -41,14 +41,18 @@ class DiceGameBot:
         )
 
         self.lobby_manager = LobbyManager(self.db)
-        self.game_manager = GameManager(self.db, self.payment_manager)  # ← передаем payment_manager
-        self.duel_manager = DuelManager(self.db, self.payment_manager)  # ← передаем payment_manager
+        self.game_manager = GameManager(self.db, self.payment_manager)
+        self.duel_manager = DuelManager(self.db, self.payment_manager)
 
+        self.games = {}
+        self.active_lobby_games = {}
 
         self.db_connection = db_connection
 
         # Создаем приложение
         self.application = ApplicationBuilder().token(self.config.BOT_TOKEN).build()
+
+        self.setup_cleanup_jobs()
 
         # Регистрируем обработчики
         self.register_handlers()
@@ -71,32 +75,43 @@ class DiceGameBot:
         # ВАЖНО: Порядок регистрации КРИТИЧЕСКИ ВАЖЕН!
         # Сначала самые специфичные обработчики, потом общие
 
-        # 1. Самые специфичные - дуэли (с фильтрацией по паттерну)
-        logger.info("🔄 1/7: Регистрация обработчиков ДУЭЛЕЙ...")
+        # 1. Команда /duel (должна быть отдельно, так как это команда)
+        logger.info("🔄 1/8: Регистрация команды /duel...")
+        from app.handlers.duel_handlers import duel_command
+        from telegram.ext import CommandHandler
+        self.application.add_handler(CommandHandler("duel", duel_command))
+
+        # 2. Самые специфичные - дуэли (callback с фильтрацией по паттерну)
+        logger.info("🔄 2/8: Регистрация обработчиков ДУЭЛЕЙ (callback)...")
         register_duel_handlers(self.application, self)
 
-        # 2. Обработчики игр
-        logger.info("🔄 2/7: Регистрация обработчиков ИГР...")
+        # 3. Обработчики игр
+        logger.info("🔄 3/8: Регистрация обработчиков ИГР...")
         register_game_handlers(self.application, self)
 
-        # 3. Обработчики лобби
-        logger.info("🔄 3/7: Регистрация обработчиков ЛОББИ...")
+        # 4. Обработчики лобби
+        logger.info("🔄 4/8: Регистрация обработчиков ЛОББИ...")
         register_lobby_handlers(self.application, self)
 
-        # 4. Команды (/start, /menu и т.д.)
-        logger.info("🔄 4/7: Регистрация обработчиков КОМАНД...")
+        # 5. Команды (/start, /menu и т.д.)
+        logger.info("🔄 5/8: Регистрация обработчиков КОМАНД...")
         register_command_handlers(self.application, self)
 
-        # 5. ОБЩИЕ кнопки (должен быть ПОСЛЕ всех специфичных!)
-        logger.info("🔄 5/7: Регистрация ОБЩЕГО обработчика кнопок...")
+        # 6. ОБЩИЕ кнопки (должен быть ПОСЛЕ всех специфичных!)
+        logger.info("🔄 6/8: Регистрация ОБЩЕГО обработчика кнопок...")
         register_button_handlers(self.application, self)
 
-        # 6. Обработчики ПЛАТЕЖЕЙ (теперь после общих кнопок)
-        logger.info("🔄 6/7: Регистрация обработчиков ПЛАТЕЖЕЙ...")
-        register_payment_handlers(self.application, self)
+        # 7. Обработчики ПЛАТЕЖЕЙ (теперь после общих кнопок)
+        logger.info("🔄 7/8: Регистрация обработчиков ПЛАТЕЖЕЙ...")
+        # Проверяем, существует ли этот модуль
+        try:
+            register_payment_handlers(self.application, self)
+            logger.info("✅ Обработчики платежей зарегистрированы")
+        except Exception as e:
+            logger.warning(f"⚠️ Обработчики платежей не зарегистрированы: {e}")
 
-        # 7. Обработчики текстовых сообщений (самые общие)
-        logger.info("🔄 7/7: Регистрация обработчиков СООБЩЕНИЙ...")
+        # 8. Обработчики текстовых сообщений (самые общие)
+        logger.info("🔄 8/8: Регистрация обработчиков СООБЩЕНИЙ...")
         register_message_handlers(self.application, self)
 
         # Отладочная информация
@@ -122,6 +137,34 @@ class DiceGameBot:
                         pass
         except Exception as e:
             logger.error(f"❌ Ошибка при логировании обработчиков: {e}")
+
+    def setup_cleanup_jobs(self):
+        """Настраивает фоновые задачи очистки"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if hasattr(self.application, 'job_queue') and self.application.job_queue:
+            # Очистка старых лобби каждые 60 секунд
+            self.application.job_queue.run_repeating(
+                self.cleanup_old_lobbies_job,
+                interval=60.0,  # Каждую минуту
+                first=30.0  # Запустить через 30 секунд после старта
+            )
+            logger.info("✅ Фоновая очистка лобби настроена (каждые 60 сек)")
+        else:
+            logger.warning("⚠️ Job queue недоступен, фоновая очистка отключена")
+
+    async def cleanup_old_lobbies_job(self, context):
+        """Фоновая задача для очистки старых лобби"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            removed_count = self.lobby_manager.cleanup_old_lobbies(timeout_minutes=5)
+            if removed_count > 0:
+                logger.info(f"🧹 Удалено {removed_count} старых лобби")
+        except Exception as e:
+            logger.error(f"❌ Ошибка очистки лобби: {e}")
 
     def run(self):
         """Запуск бота"""

@@ -3,6 +3,7 @@ import uuid
 import json
 import asyncio
 import logging
+import time
 from typing import Dict, Optional
 
 from app.models.lobby import Lobby, LobbyPlayer
@@ -135,7 +136,7 @@ class LobbyManager:
             return
 
         lobby.timer_started = True
-        lobby.timer_expires_at = time.time() + timeout
+        lobby.timer_expires_at = time.time() + timeout  # ← Использует time
 
         logger.info(f"⏰ Запущен таймер для лобби {lobby_id} ({timeout} сек)")
 
@@ -212,3 +213,62 @@ class LobbyManager:
         except Exception as e:
             logger.error(f"❌ Ошибка сохранения лобби {lobby.id}: {e}")
             return False
+
+    def cleanup_old_lobbies(self, timeout_minutes=5):
+        """Удаляет лобби старше указанного времени (по умолчанию 5 минут)"""
+        # Убираем import time - он уже в начале файла
+
+        current_time = time.time()
+        timeout_seconds = timeout_minutes * 60
+
+        lobbies_to_remove = []
+
+        for lobby_id, lobby in list(self.lobbies.items()):
+            # Пропускаем активные игры
+            if lobby.status == "active":
+                continue
+
+            lobby_age = current_time - lobby.created_at
+
+            # Условия для удаления:
+            # 1. Лобби старше timeout_minutes минут
+            # 2. И мало игроков (<= 1) или пустое
+            if lobby_age > timeout_seconds:
+                if len(lobby.players) <= 1:  # Только создатель или пусто
+                    lobbies_to_remove.append((lobby_id, lobby))
+
+        # Удаляем лобби
+        for lobby_id, lobby in lobbies_to_remove:
+            # Возвращаем ставку создателю если он один и оплатил
+            if len(lobby.players) == 1:
+                creator = lobby.players[0]
+                if creator.paid and lobby.bet_amount > 0:
+                    try:
+                        self.db.update_balance(creator.id, lobby.bet_amount)
+                        logger.info(
+                            f"💰 Возвращена ставка ${lobby.bet_amount:.0f} создателю {creator.username} (ID: {creator.id})")
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка возврата ставки создателю {creator.id}: {e}")
+
+            # Удаляем из памяти
+            del self.lobbies[lobby_id]
+
+            # Удаляем из БД
+            try:
+                conn = self.db.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM lobbies WHERE id = ?", (lobby_id,))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.error(f"❌ Ошибка удаления лобби {lobby_id} из БД: {e}")
+
+            age_minutes = lobby_age // 60
+            logger.info(
+                f"🗑️ Удалено старое лобби {lobby_id} (возраст: {age_minutes:.0f} мин, игроков: {len(lobby.players)})")
+
+        return len(lobbies_to_remove)
+
+    def get_all_lobbies(self):
+        """Получает все лобби (для очистки)"""
+        return list(self.lobbies.values())

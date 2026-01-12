@@ -14,5 +14,5 @@ __all__ = [
     'register_lobby_handlers',
     'register_game_handlers',
     'register_duel_handlers',
-    'register_payment_handlers',
+    # 'register_payment_handlers',
 ]

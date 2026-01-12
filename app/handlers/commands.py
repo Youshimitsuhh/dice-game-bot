@@ -432,6 +432,9 @@ async def join_lobby_from_deeplink(update, lobby_id, bot):
     # Проверяем не присоединился ли уже
     if any(p.id == user_id for p in lobby.players):
         await update.message.reply_text("❌ Вы уже в этом лобби!")
+
+        # Даже если уже в лобби, отправляем персональное сообщение
+        await send_personal_lobby_message_to_user(user_id, lobby, bot)
         return
 
     # Проверяем есть ли свободные места
@@ -464,29 +467,37 @@ async def join_lobby_from_deeplink(update, lobby_id, bot):
         # Сохраняем лобби
         bot.lobby_manager.save_lobby_to_db(lobby)
 
-        # Сообщение успеха
+        # 1. Успешное сообщение в чате
         await update.message.reply_text(
             f"✅ Вы присоединились к лобби #{lobby_id}!\n\n"
             f"💰 Ставка: ${lobby.bet_amount:.0f}\n"
             f"👥 Игроков: {len(lobby.players)}/{lobby.max_players}\n\n"
-            f"📋 Информация о лобби отправлена в чат создателя."
+            f"📨 **Вам отправлено персональное сообщение с управлением лобби!**\n"
+            f"Проверьте чат с ботом."
         )
 
-        # Уведомляем создателя
+        # 2. ОТПРАВЛЯЕМ ПЕРСОНАЛЬНОЕ СООБЩЕНИЕ С КНОПКАМИ
+        await send_personal_lobby_message_to_user(user_id, lobby, bot)
+
+        # 3. Уведомляем создателя
         try:
             await bot.application.bot.send_message(
                 chat_id=lobby.creator_id,
                 text=f"🎮 Игрок {username} присоединился к вашему лобби #{lobby_id}!\n"
                      f"👥 Теперь игроков: {len(lobby.players)}/{lobby.max_players}"
             )
+
+            # Также отправляем создателю обновленное сообщение лобби
+            await send_personal_lobby_message_to_user(lobby.creator_id, lobby, bot)
         except Exception as e:
             logger.error(f"❌ Ошибка уведомления создателя: {e}")
 
-        # Обновляем сообщение лобби (если возможно)
-        if lobby.message_chat_id and lobby.message_id:
+        # 4. Обновляем сообщение лобби (если возможно)
+        if hasattr(lobby, 'message_chat_id') and hasattr(lobby, 'message_id'):
             try:
+                from app.handlers.lobby_handlers import get_lobby_keyboard
                 text = lobby.get_lobby_text()
-                keyboard = get_lobby_keyboard(lobby)  # Нужно импортировать из lobby_handlers
+                keyboard = get_lobby_keyboard(lobby)
 
                 await bot.application.bot.edit_message_text(
                     chat_id=lobby.message_chat_id,
@@ -499,6 +510,77 @@ async def join_lobby_from_deeplink(update, lobby_id, bot):
                 logger.error(f"❌ Ошибка обновления сообщения лобби: {e}")
     else:
         await update.message.reply_text(f"❌ {message}")
+
+
+async def send_personal_lobby_message_to_user(user_id, lobby, bot):
+    """Отправляет персональное сообщение с управлением лобби пользователю"""
+    try:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        # Получаем информацию об игроке
+        player = lobby.get_player(user_id)
+        if not player:
+            return
+
+        # Создаем текст сообщения
+        ready_count = sum(1 for p in lobby.players if p.ready)
+        player_status = "✅ Готов" if player.ready else "❌ Не готов"
+
+        message_text = (
+            f"🎮 **Ваше лобби** #{lobby.id}\n\n"
+            f"👤 Создатель: {lobby.creator_name}\n"
+            f"💰 Ставка: ${lobby.bet_amount:.0f}\n"
+            f"👥 Игроков: {len(lobby.players)}/{lobby.max_players}\n"
+            f"✅ Готовы: {ready_count}/{len(lobby.players)}\n"
+            f"📊 Ваш статус: {player_status}\n\n"
+        )
+
+        # Создаем кнопки
+        buttons = []
+
+        # Кнопка готовности
+        ready_button_text = "✅ Отметить готовность" if not player.ready else "⏸ Снять готовность"
+        buttons.append([
+            InlineKeyboardButton(
+                ready_button_text,
+                callback_data=f"lobby_toggle_ready:{lobby.id}:{user_id}"
+            )
+        ])
+
+        # Кнопка выхода
+        buttons.append([
+            InlineKeyboardButton(
+                "❌ Выйти из лобби",
+                callback_data=f"lobby_leave:{lobby.id}"
+            )
+        ])
+
+        # Кнопка "Начать игру" только для создателя
+        if user_id == lobby.creator_id:
+            if lobby.all_players_ready():
+                buttons.append([
+                    InlineKeyboardButton(
+                        "🚀 НАЧАТЬ ИГРУ",
+                        callback_data=f"lobby_start:{lobby.id}"
+                    )
+                ])
+            else:
+                message_text += f"⏳ Ожидание игроков: {ready_count}/{lobby.max_players} готовы\n"
+
+        keyboard = InlineKeyboardMarkup(buttons)
+
+        # Отправляем сообщение
+        await bot.application.bot.send_message(
+            chat_id=user_id,
+            text=message_text,
+            reply_markup=keyboard,
+            parse_mode='Markdown'
+        )
+
+        logger.info(f"✅ Персональное сообщение лобби отправлено игроку {user_id}")
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки персонального сообщения лобби: {e}")
 
 
 async def join_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE, bot):

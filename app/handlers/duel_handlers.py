@@ -387,10 +387,6 @@ def register_duel_handlers(application, bot):
     # Сохраняем ссылку на бота
     application.bot_data['bot_instance'] = bot
 
-    # Command handlers
-    from telegram.ext import CommandHandler
-    application.add_handler(CommandHandler("duel", duel_command))
-
     # Callback handlers С ФИЛЬТРАЦИЕЙ!
     from telegram.ext import CallbackQueryHandler
     application.add_handler(CallbackQueryHandler(
